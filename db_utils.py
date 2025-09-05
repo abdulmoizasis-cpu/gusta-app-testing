@@ -44,7 +44,7 @@ def fetch_dataframe(database_name, query, params=None):
 
         # Define SSH tunnel and remote database parameters
         ssh_host = st.secrets["SSH_HOST"]
-        ssh_port = st.secrets["SSH_PORT]
+        ssh_port = st.secrets["SSH_PORT"]
         remote_db_host = st.secrets["DB_HOST"]
         remote_db_port = st.secrets["DB_PORT"]
 
@@ -102,7 +102,7 @@ def execute_query(database_name, query, params=None):
 
         # Define SSH tunnel and remote database parameters
         ssh_host = st.secrets["SSH_HOST"]
-        ssh_port = st.secrets["SSH_PORT]
+        ssh_port = st.secrets["SSH_PORT"]
         remote_db_host = st.secrets["DB_HOST"]
         remote_db_port = st.secrets["DB_PORT"]
         
