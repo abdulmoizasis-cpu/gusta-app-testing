@@ -92,19 +92,19 @@ def execute_query(database_name, query, params=None):
         logger.info(f"Establishing SSH tunnel to connect to DB '{database_name}' for command execution...")
 
         # Get credentials from environment variables
-        db_user = os.getenv("DB_USER")
-        db_password = os.getenv("DB_PASSWORD")
-        ssh_user = os.getenv("SSH_USER")
-        ssh_password = os.getenv("SSH_PASSWORD")
+        db_user = st.secrets["DB_USER"]
+        db_password = st.secrets["DB_PASSWORD"]
+        ssh_user = st.secrets["SSH_USER"]
+        ssh_password = st.secrets["SSH_PASSWORD"]
 
         if not all([db_user, db_password, ssh_user, ssh_password]):
             raise ValueError("Required environment variables (DB_USER, DB_PASSWORD, SSH_USER, SSH_PASSWORD) are not set.")
 
         # Define SSH tunnel and remote database parameters
-        ssh_host = "ebalina.com"
-        ssh_port = 5322
-        remote_db_host = "69.167.186.10"
-        remote_db_port = 3306
+        ssh_host = st.secrets["SSH_HOST"]
+        ssh_port = st.secrets["SSH_PORT]
+        remote_db_host = st.secrets["DB_HOST"]
+        remote_db_port = st.secrets["DB_PORT"]
         
         with SSHTunnelForwarder(
             (ssh_host, ssh_port),
