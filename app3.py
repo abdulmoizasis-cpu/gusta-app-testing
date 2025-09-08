@@ -233,7 +233,7 @@ def process_row(index, row):
     if (new_ner_intent != old_ner_intent and old_ner_intent == ["search_list"]) :
         new_search = "Change in intent detected, no corresponding search chain output exists !"
         
-    if new_search :
+    if is_instance(new_search, dict) :
         new_chain_search_fields = new_search.get("search_fields", "")
         new_chain_field_values= [item.get("field_value", "") for item in new_chain_search_fields]
         
@@ -381,5 +381,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
