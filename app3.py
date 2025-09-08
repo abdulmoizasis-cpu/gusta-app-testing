@@ -223,10 +223,19 @@ def process_row(index, row):
         if new_ner_search_fields:
             new_ner_date_filter =[field.get("date_filter", "").get("value", "") for field in new_ner_search_fields if isinstance(field, dict)]
             new_ner_search_fields = [field for field in new_ner_search_fields if not isinstance(field, dict)]
+    else :
+        new_ner = "The fresh API call returned no results for this row"
 
     new_search = convert_yaml_text_to_json(new_search_raw)
     if new_search and "feedback_message" in new_search:
         new_search.pop("feedback_message")
+
+    else if not new_search :
+        new_search = "The fresh API call returned no results for this row"
+
+    if (new_ner_intent != old_ner_intent and old_ner_intent == ["search_list"]) :
+        new_search = "Change in intent detected, no corresponding search chain output exists !"
+        
         
     if new_search :
         new_chain_search_fields = new_search.get("search_fields", "")
@@ -376,3 +385,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
