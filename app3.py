@@ -230,12 +230,8 @@ def process_row(index, row):
     if new_search and "feedback_message" in new_search:
         new_search.pop("feedback_message")
 
-    elif not new_search :
-        new_search = "The fresh API call returned no results for this row"
-
     if (new_ner_intent != old_ner_intent and old_ner_intent == ["search_list"]) :
         new_search = "Change in intent detected, no corresponding search chain output exists !"
-        
         
     if new_search :
         new_chain_search_fields = new_search.get("search_fields", "")
