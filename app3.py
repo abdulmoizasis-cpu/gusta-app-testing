@@ -230,7 +230,7 @@ def process_row(index, row):
     if new_search and "feedback_message" in new_search:
         new_search.pop("feedback_message")
 
-    else if not new_search :
+    elif not new_search :
         new_search = "The fresh API call returned no results for this row"
 
     if (new_ner_intent != old_ner_intent and old_ner_intent == ["search_list"]) :
@@ -385,4 +385,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
