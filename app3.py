@@ -146,9 +146,11 @@ def process_row(index, row):
     if not user_query:
         return None
 
+
     old_ner_raw = row.get('ner_output', "")
     old_search_raw = row.get('search_list_chain_output', "")
     old_final_raw = row.get('final_output', "")
+    old_ner_intent, new_ner_intent, old_ner_search_fields, new_ner_search_fields, old_chain_field_values, new_chain_field_values, new_ner_date_filter, old_ner_date_filter = "", "", "", "", "", "", "", ""
 
     is_new_row = (pd.isnull(old_ner_raw) or old_ner_raw == "") and \
                  (pd.isnull(old_search_raw) or old_search_raw == "") and \
@@ -185,11 +187,11 @@ def process_row(index, row):
 
     old_ner = parse_csv_text_to_json(old_ner_raw)
     if old_ner:
-        old_ner_intent = old_ner.get("intent")
-        old_ner_search_fields = old_ner.get("search_fields")
-        old_ner_leaf_entities = old_ner.get("leaf_entities")
+        old_ner_intent = old_ner.get("intent", "")
+        old_ner_search_fields = old_ner.get("search_fields", "")
+        old_ner_leaf_entities = old_ner.get("leaf_entities", "")
         if old_ner_search_fields:
-            old_ner_date_filter =[field.get("date_filter").get("value") for field in old_ner_search_fields if isinstance(field, dict)]
+            old_ner_date_filter =[field.get("date_filter", "").get("value", "") for field in old_ner_search_fields if isinstance(field, dict)]
             old_ner_search_fields = [field for field in old_ner_search_fields if not isinstance(field, dict)]
     
     old_search = convert_yaml_text_to_json(old_search_raw)
@@ -197,8 +199,8 @@ def process_row(index, row):
         old_search.pop("feedback_message")
 
     if old_search :
-        old_chain_search_fields = old_search.get("search_fields")
-        old_chain_field_values = [item.get("field_value") for item in old_chain_search_fields]
+        old_chain_search_fields = old_search.get("search_fields", "")
+        old_chain_field_values = [item.get("field_value", "") for item in old_chain_search_fields]
 
     if isinstance(old_final_raw, dict) :
         old_final = old_final_raw['url']
@@ -214,12 +216,12 @@ def process_row(index, row):
 
     new_ner = parse_csv_text_to_json(new_ner_raw)
     if new_ner:
-        new_ner_intent = new_ner.get("intent")
-        new_ner_search_fields = new_ner.get("search_fields")
-        new_ner_leaf_entities = new_ner.get("leaf_entities")
+        new_ner_intent = new_ner.get("intent", "")
+        new_ner_search_fields = new_ner.get("search_fields", "")
+        new_ner_leaf_entities = new_ner.get("leaf_entities", "")
 
         if new_ner_search_fields:
-            new_ner_date_filter =[field.get("date_filter").get("value") for field in new_ner_search_fields if isinstance(field, dict)]
+            new_ner_date_filter =[field.get("date_filter", "").get("value", "") for field in new_ner_search_fields if isinstance(field, dict)]
             new_ner_search_fields = [field for field in new_ner_search_fields if not isinstance(field, dict)]
 
     new_search = convert_yaml_text_to_json(new_search_raw)
@@ -227,8 +229,8 @@ def process_row(index, row):
         new_search.pop("feedback_message")
         
     if new_search :
-        new_chain_search_fields = new_search.get("search_fields")
-        new_chain_field_values= [item.get("field_value") for item in new_chain_search_fields]
+        new_chain_search_fields = new_search.get("search_fields", "")
+        new_chain_field_values= [item.get("field_value", "") for item in new_chain_search_fields]
         
     if isinstance(new_final_raw, dict) :
        new_final = new_final_raw['url']
