@@ -9,6 +9,7 @@ import ast
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import db_utils 
 import datetime
+from keywords_check import *
 
 DB_NAME = "llm"
 TABLE_NAME = "test_results"
@@ -76,26 +77,6 @@ def get_api_results_from_stream(query_text):
     except requests.exceptions.RequestException:
         return None, None, None
 
-def jaccard_similarity(dict1, dict2):
-    def _process_dict_to_set(data_dict):
-        processed_set = set()
-        def _flatten(obj, prefix=""):
-            if isinstance(obj, dict):
-                for k, v in obj.items():
-                    _flatten(v, f"{prefix}_{k}" if prefix else k)
-            elif isinstance(obj, list):
-                for item in obj:
-                    _flatten(item, prefix)
-            else:
-                processed_set.add((prefix, obj))
-        _flatten(data_dict)
-        return processed_set
-
-    set1 = _process_dict_to_set(dict1 or {})
-    set2 = _process_dict_to_set(dict2 or {})
-    intersection = set1.intersection(set2)
-    union = set1.union(set2)
-    return len(intersection) / len(union) if union else 1.0
 
 def extract_url(text_data):
     if isinstance(text_data, dict):
@@ -116,8 +97,8 @@ def get_diff(text1, text2):
 def render_diff(opcodes, lines1, lines2):
     left_html, right_html = [], []
     style = "white-space: pre-wrap; font-family: monospace; padding: 5px; border-radius: 5px; margin-bottom: 2px;"
-    delete_style = f"background-color: #ffdddd; color: #111; {style}"
-    insert_style = f"background-color: #ddffdd; color: #111; {style}"
+    insert_style = f"background-color: #ff9999; color: #000; {style}"
+    delete_style = f"background-color: #99ff99; color: #000; {style}"
 
     for tag, i1, i2, j1, j2 in opcodes:
         if tag == 'equal':
@@ -203,12 +184,21 @@ def process_row(index, row):
 
 
     old_ner = parse_csv_text_to_json(old_ner_raw)
-    if old_ner :
-        old_ner.pop("possible_answer", None)
+    if old_ner:
+        old_ner_intent = old_ner.get("intent")
+        old_ner_search_fields = old_ner.get("search_fields")
+        old_ner_leaf_entities = old_ner.get("leaf_entities")
+        if old_ner_search_fields:
+            old_ner_date_filter =[field.get("date_filter").get("value") for field in old_ner_search_fields if isinstance(field, dict)]
+            old_ner_search_fields = [field for field in old_ner_search_fields if not isinstance(field, dict)]
     
     old_search = convert_yaml_text_to_json(old_search_raw)
     if old_search and "feedback_message" in old_search:
         old_search.pop("feedback_message")
+
+    if old_search :
+        old_chain_search_fields = old_search.get("search_fields")
+        old_chain_field_values = [item.get("field_value") for item in old_chain_search_fields]
 
     if isinstance(old_final_raw, dict) :
         old_final = old_final_raw['url']
@@ -224,23 +214,42 @@ def process_row(index, row):
 
     new_ner = parse_csv_text_to_json(new_ner_raw)
     if new_ner:
-        new_ner.pop("possible_answer", None)
+        new_ner_intent = new_ner.get("intent")
+        new_ner_search_fields = new_ner.get("search_fields")
+        new_ner_leaf_entities = new_ner.get("leaf_entities")
+
+        if new_ner_search_fields:
+            new_ner_date_filter =[field.get("date_filter").get("value") for field in new_ner_search_fields if isinstance(field, dict)]
+            new_ner_search_fields = [field for field in new_ner_search_fields if not isinstance(field, dict)]
 
     new_search = convert_yaml_text_to_json(new_search_raw)
     if new_search and "feedback_message" in new_search:
         new_search.pop("feedback_message")
+        
+    if new_search :
+        new_chain_search_fields = new_search.get("search_fields")
+        new_chain_field_values= [item.get("field_value") for item in new_chain_search_fields]
         
     if isinstance(new_final_raw, dict) :
        new_final = new_final_raw['url']
     else :
         new_final = extract_url(new_final_raw)
     
-    ner_similarity = jaccard_similarity(old_ner, new_ner)
-    search_similarity = jaccard_similarity(old_search, new_search)
+    ner_flag = False
+    final_flag = False
+    search_flag= False
 
-    ner_flag = ner_similarity >= 0.9
-    search_flag = search_similarity >= 0.9
-    final_flag = old_final == new_final
+    if (new_ner_intent != old_ner_intent) or (old_ner_date_filter != new_ner_date_filter) or (calculate_similarity(old_ner_search_fields, new_ner_search_fields)) or calculate_similarity(old_ner_leaf_entities, new_ner_leaf_entities) :
+        ner_flag = True
+
+    if (old_final != new_final) :
+        final_flag = True
+
+    if (ner_flag or search_flag) :
+        if (old_final != new_final) :
+            final_flag = True
+ 
+    search_flag = bool(set(old_chain_field_values) ^ set(new_chain_field_values))
 
     updates_to_make = {}
     if pd.isnull(old_ner_raw) or old_ner_raw == "":
@@ -260,12 +269,12 @@ def process_row(index, row):
 
     return {
         "id": index,
-        "failed": not (ner_flag and search_flag and final_flag),
+        "failed": (search_flag and ner_flag and final_flag),
         "updates": updates_to_make,
         "failures": {
-            "ner": not ner_flag,
-            "search": not search_flag,
-            "final": not final_flag
+            "ner": ner_flag,
+            "search": search_flag,
+            "final": final_flag
         },
         "data": {
             "old_ner": old_ner, "new_ner": new_ner,
