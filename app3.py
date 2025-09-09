@@ -11,6 +11,7 @@ import db_utils
 import datetime
 from keywords_check import *
 import streamlit.components.v1 as components
+from streamlit_clipboard import st_clipboard
 
 DB_NAME = "llm"
 TABLE_NAME = "test_results"
@@ -359,20 +360,11 @@ def main():
                                     st.error(f"Could not process row: {result['error']}")
                                     continue
                                     
-                                if st.button("Copy User Query", key=f"copy_{result['id']}"):
-                                    query_text = result['user_query']
-                                    components.html(f"""
-                                        <script>
-                                            const text = `{query_text}`;
-                                            const listener = (e) => {{
-                                                e.clipboardData.setData("text/plain", text);
-                                                e.preventDefault();
-                                            }};
-                                            document.addEventListener("copy", listener);
-                                            document.execCommand("copy");
-                                            document.removeEventListener("copy", listener);
-                                        </script>
-                                    """, height=0)
+                                col1, col2 = st.columns([0.8, 0.2])
+                                with col1:
+                                    st.text_area("User Query:", result['user_query'], height=30, key=f"query_{result['id']}")
+                                with col2:
+                                    st_clipboard(result['user_query'], key=f"clip_{result['id']}")
                                 
                                 if result["failures"]["ner"]:
                                     display_diff("NER Output Difference", result["data"]["old_ner"], result["data"]["new_ner"])
@@ -398,6 +390,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
