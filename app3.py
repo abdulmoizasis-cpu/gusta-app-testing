@@ -359,6 +359,9 @@ def main():
                                 if result.get('error'):
                                     st.error(f"Could not process row: {result['error']}")
                                     continue
+
+                                st.text_area("User Query:", result['user_query'], height=30, key=f"query_{result['id']}")
+                                st_copy_to_clipboard(result['user_query'], "Copy Query", key=f"copy_{result['id']}")
                                     
                                 if result["failures"]["ner"]:
                                     display_diff("NER Output Difference", result["data"]["old_ner"], result["data"]["new_ner"])
@@ -384,6 +387,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
