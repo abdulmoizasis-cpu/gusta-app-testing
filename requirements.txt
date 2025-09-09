@@ -9,5 +9,6 @@ PyMySQL
 sshtunnel==0.4.0
 paramiko==2.12.0
 python-dotenv
-streamlit-clipboard
+st-copy-to-clipboard
+
 
