@@ -359,10 +359,6 @@ def main():
                                     st.error(f"Could not process row: {result['error']}")
                                     continue
                                     
-                                col1 = st.columns([0.8])
-                                with col1:
-                                    st.code(user_query)
-                                    
                                 if result["failures"]["ner"]:
                                     display_diff("NER Output Difference", result["data"]["old_ner"], result["data"]["new_ner"])
                                     st.divider()
@@ -387,6 +383,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
