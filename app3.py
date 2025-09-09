@@ -362,7 +362,7 @@ def main():
                                     
                                 col1 = st.columns([0.8])
                                 with col1:
-                                    st.code(user_query, language=“python”)
+                                    st.code(user_query)
                                     
                                 if result["failures"]["ner"]:
                                     display_diff("NER Output Difference", result["data"]["old_ner"], result["data"]["new_ner"])
@@ -388,6 +388,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
