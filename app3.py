@@ -11,7 +11,6 @@ import db_utils
 import datetime
 from keywords_check import *
 import streamlit.components.v1 as components
-from streamlit_clipboard import st_clipboard
 
 DB_NAME = "llm"
 TABLE_NAME = "test_results"
@@ -388,6 +387,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
