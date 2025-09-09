@@ -58,7 +58,7 @@ def get_api_results_from_stream(query_text):
         
         ner_output, final_output, search_list_chain_output = "", "", ""
         if not full_response_data:
-            return None, None, None
+            return None, None, None, None
 
         for item in full_response_data:
             if item.get("log_title") == "NER Succeded":
@@ -75,7 +75,7 @@ def get_api_results_from_stream(query_text):
         return ner_output, final_output, search_list_chain_output, time_stamp
 
     except requests.exceptions.RequestException:
-        return None, None, None
+        return None, None, None, None
 
 
 def extract_url(text_data):
@@ -381,6 +381,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
