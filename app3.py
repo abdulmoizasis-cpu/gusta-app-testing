@@ -9,6 +9,7 @@ import ast
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import db_utils 
 import datetime
+import time
 from keywords_check import *
 import streamlit.components.v1 as components
 from st_copy_to_clipboard import st_copy_to_clipboard
@@ -43,41 +44,54 @@ def convert_yaml_text_to_json(yaml_text):
         return {"raw_unparseable_text": yaml_text}
 
 def get_api_results_from_stream(query_text):
+    max_retries = 5
+    trial = 1
+    last_error = "API call returned no error"
     payload = {"query": query_text, "k": 5}
-    try:
-        response = requests.post(API_STREAM_URL, json=payload, stream=True, timeout=90)
-        response.raise_for_status()
+    for attempt in range(max_retries) : 
+        # print(f"trial number {trial}\n")
+        trial += 1
+        try:
+            response = requests.post(API_STREAM_URL, json=payload, stream=True, timeout=90)
+            response.raise_for_status()
 
-        full_response_data = []
-        for line in response.iter_lines():
-            if line:
-                json_line = line.decode('utf-8').replace('data: ', '').strip()
-                if json_line:
-                    try:
-                        full_response_data.append(json.loads(json_line))
-                    except json.JSONDecodeError:
-                        pass
+            full_response_data = []
+            for line in response.iter_lines():
+                if line:
+                    json_line = line.decode('utf-8').replace('data: ', '').strip()
+                    if json_line:
+                        try:
+                            full_response_data.append(json.loads(json_line))
+                        except json.JSONDecodeError:
+                            pass
+            
+            ner_output, final_output, search_list_chain_output = None, None, None
+
+            if full_response_data : 
+                for item in full_response_data:
+                    if item.get("log_title") == "NER Succeded":
+                        content = item.get("content")
+                        ner_output = json.dumps(content) if isinstance(content, (dict, list)) else str(content)
+                    if item.get("log_title") == "Search List Result":
+                        content = item.get("content")
+                        search_list_chain_output = json.dumps(content) if isinstance(content, (dict, list)) else str(content)
+                if ner_output == None :
+                    continue
+                time_stamp = full_response_data[0].get("timestamp")
+                time_stamp = datetime.datetime.fromtimestamp(time_stamp).strftime("%Y-%m-%d %H:%M:%S")
+                final_output = full_response_data[-1].get("output", "")
+                return ner_output, final_output, search_list_chain_output, time_stamp
+        except requests.exceptions.RequestException as e:
+            last_error = e
+            time.sleep(1)
+
+    error_message = "Retried 5 times but api call returned no results"
+    if last_error:
+        error_message += f"\n Error : {last_error}"
+    current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    return error_message, error_message, error_message, current_time 
         
-        ner_output, final_output, search_list_chain_output = "", "", ""
-        if not full_response_data:
-            return None, None, None, None
-
-        for item in full_response_data:
-            if item.get("log_title") == "NER Succeded":
-                content = item.get("content")
-                ner_output = json.dumps(content) if isinstance(content, (dict, list)) else str(content)
-            if item.get("log_title") == "Search List Result":
-                content = item.get("content")
-                search_list_chain_output = json.dumps(content) if isinstance(content, (dict, list)) else str(content)
-
-        time_stamp = full_response_data[0].get("timestamp")
-        time_stamp = datetime.datetime.fromtimestamp(time_stamp).strftime("%Y-%m-%d %H:%M:%S")
-        
-        final_output = full_response_data[-1].get("output", "")
-        return ner_output, final_output, search_list_chain_output, time_stamp
-
-    except requests.exceptions.RequestException:
-        return None, None, None, None
 
 
 def extract_url(text_data):
@@ -153,6 +167,7 @@ def process_row(index, row):
     old_search_raw = row.get('search_list_chain_output', "")
     old_final_raw = row.get('final_output', "")
     old_ner_intent, new_ner_intent, old_ner_search_fields, new_ner_search_fields, old_chain_field_values, new_chain_field_values, new_ner_date_filter, old_ner_date_filter = "", "", "", "", "", "", "", ""
+    ref_new_chain_field_values,ref_new_ner_leaf_entities, ref_new_ner_search_fields, ref_old_chain_field_values, ref_old_ner_leaf_entities, ref_old_ner_search_fields = "", "", "", "", "", ""
 
     is_new_row = (pd.isnull(old_ner_raw) or old_ner_raw == "") and \
                  (pd.isnull(old_search_raw) or old_search_raw == "") and \
@@ -202,7 +217,7 @@ def process_row(index, row):
 
     if old_search :
         old_chain_search_fields = old_search.get("search_fields", "")
-        old_chain_field_values = [item.get("field_value", "") for item in old_chain_search_fields]
+        old_chain_field_values = [item.get("field_value", "") for item in old_chain_search_fields if item.get("field_type", "") != "date"]
 
     if isinstance(old_final_raw, dict) :
         old_final = old_final_raw['url']
@@ -213,8 +228,20 @@ def process_row(index, row):
 
     new_ner_raw, new_final_raw, new_search_raw, new_time_stamp = get_api_results_from_stream(api_query)
 
-    if new_ner_raw is None:
-        return {"id": index, "failed": True, "error": "API Request Failed"}
+    if new_ner_raw[0] == 'R' : #retry failure"
+        return {
+            "id": index,
+            "user_query": user_query,
+            "failed": True,
+            "failures": {
+                "ner": True,
+                "search": False,
+                "final": False
+                },
+            "data": {
+                "old_ner": old_ner,
+                "new_ner": new_ner_raw}
+            }
 
     new_ner = parse_csv_text_to_json(new_ner_raw)
     if new_ner:
@@ -237,7 +264,7 @@ def process_row(index, row):
         
     if isinstance(new_search, dict) :
         new_chain_search_fields = new_search.get("search_fields", "")
-        new_chain_field_values= [item.get("field_value", "") for item in new_chain_search_fields]
+        new_chain_field_values= [item.get("field_value", "") for item in new_chain_search_fields if item.get("field_type", "") != "date"]
         
     if isinstance(new_final_raw, dict) :
        new_final = new_final_raw['url']
@@ -248,18 +275,39 @@ def process_row(index, row):
     final_flag = False
     search_flag= False
 
-    if (new_ner_intent != old_ner_intent) or (old_ner_date_filter != new_ner_date_filter) or (calculate_similarity(old_ner_search_fields, new_ner_search_fields)) or calculate_similarity(old_ner_leaf_entities, new_ner_leaf_entities) :
+    if bool(old_ner_search_fields) and bool(new_ner_search_fields) :
+        ref_old_ner_search_fields, ref_new_ner_search_fields = remove_plural_pairs(old_ner_search_fields, new_ner_search_fields)
+
+    if bool(old_ner_leaf_entities) and bool(new_ner_leaf_entities) :
+        ref_old_ner_leaf_entities, ref_new_ner_leaf_entities = remove_plural_pairs(old_ner_leaf_entities, new_ner_leaf_entities)
+
+    if bool(old_chain_field_values) and bool(new_chain_field_values) :
+        ref_old_chain_field_values, ref_new_chain_field_values = remove_plural_pairs(old_chain_field_values, new_chain_field_values)
+
+    if (new_ner_intent != old_ner_intent) or (bool(old_ner_date_filter) != bool(new_ner_date_filter)) or (calculate_similarity(ref_old_ner_search_fields, ref_new_ner_search_fields)) or calculate_similarity(ref_old_ner_leaf_entities, ref_new_ner_leaf_entities) :
         ner_flag = True
 
-    if (old_final != new_final) :
-        final_flag = True
+    search_flag = bool(set(ref_old_chain_field_values) ^ set(ref_new_chain_field_values)) or (bool(old_chain_field_values) != bool(new_chain_field_values))
+
+    # print(f"\n--- Row ID: {index} ---")
+    # print(f"Old Chain Field Values: {old_chain_field_values}")
+    # print(f"New Chain Field Values: {new_chain_field_values}")
+    # print(f"Show differences bool :{search_flag}")
+    # print(f"----------------------------------------")
+    # print(f"old_ner_intent: {old_ner_intent}")
+    # print(f"new_ner_intent: {new_ner_intent}")
+    # print(f"old_ner_date_filter: {old_ner_date_filter}")
+    # print(f"new_ner_date_filtert: {new_ner_date_filter}")
+    # print(f"old_ner_search_fields: {old_ner_search_fields}")
+    # print(f"new_ner_search_fields: {new_ner_search_fields}")
+    # print(f"old_ner_leaf_entities: {old_ner_leaf_entities}")
+    # print(f"new_ner_leaf_entities: {new_ner_leaf_entities}")
+    # print(f"Show differences bool :{ner_flag}")
 
     if (ner_flag or search_flag) :
         if (old_final != new_final) :
             final_flag = True
  
-    search_flag = bool(set(old_chain_field_values) ^ set(new_chain_field_values))
-
     updates_to_make = {}
     if pd.isnull(old_ner_raw) or old_ner_raw == "":
         updates_to_make['ner_output'] = new_ner_raw
@@ -279,7 +327,7 @@ def process_row(index, row):
     return {
         "id": index,
         "user_query": user_query,
-        "failed": (search_flag and ner_flag and final_flag),
+        "failed": (search_flag or ner_flag or final_flag),
         "updates": updates_to_make,
         "failures": {
             "ner": ner_flag,
@@ -289,13 +337,15 @@ def process_row(index, row):
         "data": {
             "old_ner": old_ner, "new_ner": new_ner,
             "old_search": old_search, "new_search": new_search,
-            "old_final": old_final, "new_final": new_final
-        }
+            "old_final": old_final, "new_final": new_final,
+            "new_ner_raw": new_ner_raw,
+            "new_search_raw": new_search_raw,
+            "new_final_raw": new_final_raw}
     }
 
-def display_diff(title, old_data, new_data):
+def display_diff(title, old_data, new_data, row_id, column_name, new_raw_data, buttons_enabled=False):
     st.subheader(title)
-    
+
     if isinstance(old_data, (dict, list)):
         old_text = json.dumps(old_data, indent=4, sort_keys=True)
     else:
@@ -309,86 +359,133 @@ def display_diff(title, old_data, new_data):
     lines1 = old_text.splitlines()
     lines2 = new_text.splitlines()
     opcodes = get_diff(old_text, new_text)
-    
+
     left_html, right_html = render_diff(opcodes, lines1, lines2)
     left_col, right_col = st.columns(2)
     with left_col:
         st.markdown("<h5>Original</h5>", unsafe_allow_html=True)
         st.markdown(left_html, unsafe_allow_html=True)
     with right_col:
-        st.markdown("<h5>New</h5>", unsafe_allow_html=True)
+        header_cols, _ = st.columns([0.6, 0.4])
+        with header_cols:
+            st.markdown("<h5>New</h5>", unsafe_allow_html=True)
+
+        if buttons_enabled:
+            _, btn_cols = st.columns([0.45, 0.55])
+            with btn_cols:
+                b_col1, b_col2 = st.columns(2)
+                with b_col1:
+                    if st.button("Replace", key=f"replace_{row_id}_{column_name}", use_container_width=True):
+                        update_database_record(row_id, {column_name: new_raw_data})
+                        st.toast(f"`{column_name}` for row `{row_id}` updated.", icon="✅")
+                with b_col2:
+                    if st.button("Clear", key=f"clear_{row_id}_{column_name}", use_container_width=True):
+                        update_database_record(row_id, {column_name: ""})
+                        st.toast(f"`{column_name}` for row `{row_id}` cleared.", icon="🗑️")
+
         st.markdown(right_html, unsafe_allow_html=True)
 
+def display_result_expander(result, buttons_enabled=False):
+    if not result:
+        return
+
+    if result.get('status') == 'deleted_duplicate':
+        st.error(f"Row ID {result['id']}: {result['error']}")
+        return
+
+    if result.get('failed'):
+        with st.expander(f"🚨 Row ID: {result['id']}"):
+            if result.get('error'):
+                st.error(f"Could not process row: {result['error']}")
+                return
+
+            st.text_area("User Query:", result['user_query'], height=30, key=f"query_{result['id']}")
+            st_copy_to_clipboard(result['user_query'], "Copy Query", key=f"copy_{result['id']}")
+                
+            if result["failures"]["ner"]:
+                display_diff("NER Output Difference", result["data"]["old_ner"], result["data"]["new_ner"], result['id'], 'ner_output', result['data']['new_ner_raw'], buttons_enabled)
+                st.divider()
+
+            if not isinstance(result["data"]["new_ner"], str) or not result["data"]["new_ner"].startswith("Retried"):
+                if result["failures"]["search"]:
+                    display_diff("Search Output Difference", result["data"]["old_search"], result["data"]["new_search"], result['id'], 'search_list_chain_output', result['data']['new_search_raw'], buttons_enabled)
+                    st.divider()
+
+                if result["failures"]["final"]:
+                    display_diff("Final Output Difference", result["data"]["old_final"], result["data"]["new_final"], result['id'], 'final_output', result['data']['new_final_raw'], buttons_enabled)
+
 def main():
+    if 'analysis_results' not in st.session_state:
+        st.session_state.analysis_results = None
+    if 'analysis_running' not in st.session_state:
+        st.session_state.analysis_running = False
+    if 'analysis_summary' not in st.session_state:
+        st.session_state.analysis_summary = None
+
     df = db_utils.fetch_dataframe(DB_NAME, f"SELECT * FROM {TABLE_NAME}")
 
     if df is not None:
         st.success(f"Successfully loaded {len(df)} rows from the database.")
-
         if st.button("Run Analysis", use_container_width=True):
-            progress_bar = st.progress(0, text="Starting analysis...")
-            header_placeholder = st.empty()
-            summary_placeholder = st.empty()
-            results_container = st.container()
+            st.session_state.analysis_running = True
+            st.session_state.analysis_results = []
+            st.session_state.analysis_summary = {}
+            st.rerun()
 
-            header_placeholder.header("Analysis in Progress...")
+    if st.session_state.analysis_running:
+        st.header("Analysis in Progress...")
+        progress_bar = st.progress(0, text="Starting analysis...")
+        summary_placeholder = st.empty()
+        results_container = st.container()
+        
+        failed_count = 0
+        deleted_count = 0
+        total_rows = len(df)
+        live_results = []
+        
+        with ThreadPoolExecutor(max_workers=5) as executor:
+            future_to_row = {executor.submit(process_row, row['id'], row): row['id'] for index, row in df.iterrows()}
             
-            failed_count = 0
-            deleted_count = 0
-            total_rows = len(df)
-            
-            with ThreadPoolExecutor(max_workers=5) as executor:
-                future_to_row = {executor.submit(process_row, row['id'], row): row['id'] for index, row in df.iterrows()}
-                
-                for i, future in enumerate(as_completed(future_to_row), 1):
-                    result = future.result()
-                    if not result:
-                        continue
+            processed_count = 0
+            for future in as_completed(future_to_row):
+                processed_count += 1
+                result = future.result()
+                live_results.append(result)
 
+                if result:
                     if result.get('status') == 'deleted_duplicate':
-                        deleted_count +=1
-                        st.error(f"Row ID {result['id']}: {result['error']}")
-                        summary_placeholder.info(f"Processed: {i}/{total_rows} | Failures: {failed_count} | Deleted: {deleted_count}")
-                        progress_bar.progress(i / total_rows, text=f"Processing row {i}/{total_rows}")
-                        continue
-
+                        deleted_count += 1
                     if result.get('failed'):
                         failed_count += 1
-                        with results_container:
-                            with st.expander(f"🚨 Row ID: {result['id']}"):
-                                if result.get('error'):
-                                    st.error(f"Could not process row: {result['error']}")
-                                    continue
+                
+                with results_container:
+                    display_result_expander(result, buttons_enabled=False)
 
-                                st.text_area("User Query:", result['user_query'], height=30, key=f"query_{result['id']}")
-                                st_copy_to_clipboard(result['user_query'], "Copy Query", key=f"copy_{result['id']}")
-                                    
-                                if result["failures"]["ner"]:
-                                    display_diff("NER Output Difference", result["data"]["old_ner"], result["data"]["new_ner"])
-                                    st.divider()
-                                
-                                if result["failures"]["search"]:
-                                    display_diff("Search Output Difference", result["data"]["old_search"], result["data"]["new_search"])
-                                    st.divider()
+                summary_placeholder.info(f"Processed: {processed_count}/{total_rows} | Failures: {failed_count} | Deleted: {deleted_count}")
+                progress_bar.progress(processed_count / total_rows, text=f"Processing row {processed_count}/{total_rows}")
 
-                                if result["failures"]["final"]:
-                                    display_diff("Final Output Difference", result["data"]["old_final"], result["data"]["new_final"])
-                    
-                    summary_placeholder.info(f"Processed: {i}/{total_rows} | Failures: {failed_count} | Deleted: {deleted_count}")
-                    progress_bar.progress(i / total_rows, text=f"Processing row {i}/{total_rows}")
-            
-            header_placeholder.header("Analysis Results")
-            if failed_count > 0:
-                summary_placeholder.warning(f"Found {failed_count} rows with significant differences.")
+        st.session_state.analysis_results = live_results
+        st.session_state.analysis_summary = {"failed_count": failed_count}
+        st.session_state.analysis_running = False
+        st.rerun()
+
+    elif st.session_state.analysis_results is not None:
+        st.header("Analysis Results")
+        summary = st.session_state.analysis_summary
+        if summary:
+            if summary['failed_count'] > 0:
+                st.warning(f"Found {summary['failed_count']} rows with significant differences.")
             else:
-                summary_placeholder.success("✅ All rows passed the similarity checks!")
-    else:
+                st.success("✅ All rows passed the similarity checks!")
+
+        for result in st.session_state.analysis_results:
+            display_result_expander(result, buttons_enabled=True)
+
+    elif df is None:
         st.error("Failed to load data from the database. Please check the connection and table name.")
 
 if __name__ == "__main__":
     main()
-
-
 
 
 
