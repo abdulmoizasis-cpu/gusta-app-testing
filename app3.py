@@ -400,7 +400,21 @@ def display_result_expander(result, buttons_enabled=False):
                 return
 
             st.text_area("User Query:", result['user_query'], height=30, key=f"query_{result['id']}")
-            st_copy_to_clipboard(result['user_query'], "Copy Query", key=f"copy_{result['id']}")
+            
+            action_cols = st.columns(6)
+            with action_cols[0]:
+                st_copy_to_clipboard(result['user_query'], "Copy Query", key=f"copy_{result['id']}")
+
+            if buttons_enabled:
+                with action_cols[1]:
+                    if st.button("Replace All", key=f"replace_all_{result['id']}"):
+                        updates = {
+                            'ner_output': result['data']['new_ner_raw'],
+                            'search_list_chain_output': result['data']['new_search_raw'],
+                            'final_output': result['data']['new_final_raw']
+                        }
+                        update_database_record(result['id'], updates)
+                        st.toast(f"All outputs for row `{result['id']}` replaced.", icon="🔄")
                 
             if result["failures"]["ner"]:
                 display_diff("NER Output Difference", result["data"]["old_ner"], result["data"]["new_ner"], result['id'], 'ner_output', result['data']['new_ner_raw'], buttons_enabled)
@@ -486,6 +500,8 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
 
 
 
