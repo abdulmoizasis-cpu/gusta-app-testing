@@ -177,7 +177,7 @@ def process_row(index, row):
     query_type = None
 
     if is_new_row:
-        if '\n' in user_query.strip():
+        if '\n' in user_query.strip() and '1.' not in user_query.strip():
             query_type = "conversational"
             lines = user_query.strip().split('\n')
             formatted_lines = [f"{i}. {line.strip()}" for i, line in enumerate(lines, 1) if line.strip()]
@@ -366,23 +366,7 @@ def display_diff(title, old_data, new_data, row_id, column_name, new_raw_data, b
         st.markdown("<h5>Original</h5>", unsafe_allow_html=True)
         st.markdown(left_html, unsafe_allow_html=True)
     with right_col:
-        header_cols, _ = st.columns([0.6, 0.4])
-        with header_cols:
-            st.markdown("<h5>New</h5>", unsafe_allow_html=True)
-
-        if buttons_enabled:
-            _, btn_cols = st.columns([0.45, 0.55])
-            with btn_cols:
-                b_col1, b_col2 = st.columns(2)
-                with b_col1:
-                    if st.button("Replace", key=f"replace_{row_id}_{column_name}", use_container_width=True):
-                        update_database_record(row_id, {column_name: new_raw_data})
-                        st.toast(f"`{column_name}` for row `{row_id}` updated.", icon="✅")
-                with b_col2:
-                    if st.button("Clear", key=f"clear_{row_id}_{column_name}", use_container_width=True):
-                        update_database_record(row_id, {column_name: ""})
-                        st.toast(f"`{column_name}` for row `{row_id}` cleared.", icon="🗑️")
-
+        st.markdown("<h5>New</h5>", unsafe_allow_html=True)
         st.markdown(right_html, unsafe_allow_html=True)
 
 def display_result_expander(result, buttons_enabled=False):
@@ -407,7 +391,7 @@ def display_result_expander(result, buttons_enabled=False):
 
             if buttons_enabled:
                 with action_cols[1]:
-                    if st.button("Replace All", key=f"replace_all_{result['id']}"):
+                    if st.button("Replace All Cells", key=f"replace_all_{result['id']}"):
                         updates = {
                             'ner_output': result['data']['new_ner_raw'],
                             'search_list_chain_output': result['data']['new_search_raw'],
@@ -415,6 +399,15 @@ def display_result_expander(result, buttons_enabled=False):
                         }
                         update_database_record(result['id'], updates)
                         st.toast(f"All outputs for row `{result['id']}` replaced.", icon="🔄")
+                with action_cols[2]:
+                    if st.button("Clear All Cells", key=f"clear_all_{result['id']}"):
+                        updates = {
+                            'ner_output': "",
+                            'search_list_chain_output': "",
+                            'final_output': ""
+                        }
+                        update_database_record(result['id'], updates)
+                        st.toast(f"All outputs for row `{result['id']}` cleared.", icon="🗑️")
                 
             if result["failures"]["ner"]:
                 display_diff("NER Output Difference", result["data"]["old_ner"], result["data"]["new_ner"], result['id'], 'ner_output', result['data']['new_ner_raw'], buttons_enabled)
