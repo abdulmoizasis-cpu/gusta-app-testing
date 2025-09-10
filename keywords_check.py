@@ -20,7 +20,11 @@ def calculate_similarity(list1, list2):
     """
     Calculates similarity based on the presence of unique keywords in either list.
     Includes validation for None and list types.
-    """    
+    """
+
+    if bool(list1) != bool(list2) :
+        return True
+
     if list1 is None and list2 is None:
         return False
         
@@ -43,3 +47,20 @@ def calculate_similarity(list1, list2):
         return True
     else: 
         return False
+    
+def remove_plural_pairs(list1, list2):
+    def get_base(word):
+        lowered_word = word.lower()
+        if lowered_word.endswith("'s"):
+            return lowered_word[:-2]
+        if lowered_word.endswith('s'):
+            return lowered_word[:-1]
+        return lowered_word
+
+    bases1 = {get_base(w) for w in list1 if isinstance(w, str)}
+    bases2 = {get_base(w) for w in list2 if isinstance(w, str)}
+    common_bases = bases1.intersection(bases2)
+
+    new_list1 = [w for w in list1 if get_base(w) not in common_bases]
+    new_list2 = [w for w in list2 if get_base(w) not in common_bases]
+    return new_list1, new_list2
