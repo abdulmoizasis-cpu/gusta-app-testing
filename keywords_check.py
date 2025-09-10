@@ -61,6 +61,6 @@ def remove_plural_pairs(list1, list2):
     bases2 = {get_base(w) for w in list2 if isinstance(w, str)}
     common_bases = bases1.intersection(bases2)
 
-    new_list1 = [w for w in list1 if get_base(w) not in common_bases]
-    new_list2 = [w for w in list2 if get_base(w) not in common_bases]
+    new_list1 = [w for w in list1 if isinstance(w, str) and get_base(w) not in common_bases]
+    new_list2 = [w for w in list2 if isinstance(w, str) and get_base(w) not in common_bases]
     return new_list1, new_list2
