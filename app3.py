@@ -49,7 +49,7 @@ def get_api_results_from_stream(query_text):
     last_error = "API call returned no error"
     payload = {"query": query_text, "k": 5}
     for attempt in range(max_retries) : 
-        # print(f"trial number {trial}\n")
+        print(f"trial number {trial}\n")
         trial += 1
         try:
             response = requests.post(API_STREAM_URL, json=payload, stream=True, timeout=90)
@@ -228,7 +228,7 @@ def process_row(index, row):
 
     new_ner_raw, new_final_raw, new_search_raw, new_time_stamp = get_api_results_from_stream(api_query)
 
-    if new_ner_raw[0] == 'R' : #retry failure"
+    if new_ner_raw.startswith("Retried"): #retry failure"
         return {
             "id": index,
             "user_query": user_query,
@@ -493,16 +493,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
-
-
-
-
-
-
-
-
-
-
-
