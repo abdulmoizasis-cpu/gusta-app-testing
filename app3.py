@@ -347,8 +347,9 @@ def display_diff(title, old_data, new_data, row_id, column_name, new_raw_data, b
     st.subheader(title)
 
     # Attempt to parse data if it's a string to ensure proper formatting
-    parsed_old_data = parse_csv_text_to_json(old_data) if isinstance(old_data, str) else old_data
-    parsed_new_data = parse_csv_text_to_json(new_data) if isinstance(new_data, str) else new_data
+    if column_name == "ner_output" and not(new_data.startswith('Retried')):
+        parsed_old_data = parse_csv_text_to_json(old_data) if isinstance(old_data, str) else old_data
+        parsed_new_data = parse_csv_text_to_json(new_data) if isinstance(new_data, str) else new_data
 
     if isinstance(parsed_old_data, (dict, list)):
         old_text = json.dumps(parsed_old_data, indent=4, sort_keys=True)
