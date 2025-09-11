@@ -228,7 +228,7 @@ def process_row(index, row):
 
     new_ner_raw, new_final_raw, new_search_raw, new_time_stamp = get_api_results_from_stream(api_query)
 
-    if new_ner_raw.startswith("Retried"): #retry failure"
+    if new_ner_raw and isinstance(new_ner_raw, str) and new_ner_raw.startswith("Retried"): #retry failure"
         return {
             "id": index,
             "user_query": user_query,
@@ -240,7 +240,7 @@ def process_row(index, row):
                 },
             "data": {
                 "old_ner": old_ner,
-                "new_ner": new_ner_raw}
+                "new_ner_raw": new_ner_raw}
             }
 
     new_ner = parse_csv_text_to_json(new_ner_raw)
