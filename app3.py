@@ -345,15 +345,24 @@ def process_row(index, row):
 
 def display_diff(title, old_data, new_data, row_id, column_name, new_raw_data, buttons_enabled=False):
     st.subheader(title)
-    if isinstance(old_data, (dict, list)):
-        old_text = json.dumps(old_data, indent=4, sort_keys=True)
-    else:
-        old_text = str(old_data or "")
 
-    if isinstance(new_data, (dict, list)):
-        new_text = json.dumps(new_data, indent=4, sort_keys=True)
+    # Apply special JSON parsing only for NER output
+    if title == "NER Output Difference":
+        parsed_old_data = parse_csv_text_to_json(old_data) if isinstance(old_data, str) else old_data
+        
+        # Avoid parsing the 'Retried' error message
+        if isinstance(new_data, str) and new_data.startswith("Retried"):
+            parsed_new_data = new_data
+        else:
+            parsed_new_data = parse_csv_text_to_json(new_data) if isinstance(new_data, str) else new_data
+        
+        old_text = json.dumps(parsed_old_data, indent=4, sort_keys=True) if isinstance(parsed_old_data, (dict, list)) else str(parsed_old_data or "")
+        new_text = json.dumps(parsed_new_data, indent=4, sort_keys=True) if isinstance(parsed_new_data, (dict, list)) else str(parsed_new_data or "")
+
     else:
-        new_text = str(new_data or "")
+        # Default behavior for other outputs
+        old_text = json.dumps(old_data, indent=4, sort_keys=True) if isinstance(old_data, (dict, list)) else str(old_data or "")
+        new_text = json.dumps(new_data, indent=4, sort_keys=True) if isinstance(new_data, (dict, list)) else str(new_data or "")
 
     lines1 = old_text.splitlines()
     lines2 = new_text.splitlines()
@@ -492,3 +501,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
