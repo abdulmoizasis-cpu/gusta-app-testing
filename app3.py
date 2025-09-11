@@ -410,10 +410,10 @@ def display_result_expander(result, buttons_enabled=False):
                         st.toast(f"All outputs for row `{result['id']}` cleared.", icon="🗑️")
                 
             if result["failures"]["ner"]:
-                display_diff("NER Output Difference", result["data"]["old_ner"], result["data"]["new_ner"], result['id'], 'ner_output', result['data']['new_ner_raw'], buttons_enabled)
+                display_diff("NER Output Difference", result["data"]["old_ner"], result["data"]["new_ner_raw"], result['id'], 'ner_output', result['data']['new_ner_raw'], buttons_enabled)
                 st.divider()
 
-            if not isinstance(result["data"]["new_ner"], str) or not result["data"]["new_ner"].startswith("Retried"):
+            if not isinstance(result["data"]["new_ner_raw"], str) or not result["data"]["new_ner_raw"].startswith("Retried"):
                 if result["failures"]["search"]:
                     display_diff("Search Output Difference", result["data"]["old_search"], result["data"]["new_search"], result['id'], 'search_list_chain_output', result['data']['new_search_raw'], buttons_enabled)
                     st.divider()
