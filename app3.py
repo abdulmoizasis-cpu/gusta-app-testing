@@ -168,6 +168,7 @@ def process_row(index, row):
     old_final_raw = row.get('final_output', "")
     old_ner_intent, new_ner_intent, old_ner_search_fields, new_ner_search_fields, old_chain_field_values, new_chain_field_values, new_ner_date_filter, old_ner_date_filter = "", "", "", "", "", "", "", ""
     ref_new_chain_field_values,ref_new_ner_leaf_entities, ref_new_ner_search_fields, ref_old_chain_field_values, ref_old_ner_leaf_entities, ref_old_ner_search_fields = "", "", "", "", "", ""
+    old_ner_leaf_entities, new_ner_leaf_entities = "", ""
 
     is_new_row = (pd.isnull(old_ner_raw) or old_ner_raw == "") and \
                  (pd.isnull(old_search_raw) or old_search_raw == "") and \
@@ -501,4 +502,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
