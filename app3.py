@@ -178,11 +178,12 @@ def process_row(index, row):
     query_type = None
 
     if is_new_row:
-        if '\n' in user_query.strip() and '1.' not in user_query.strip():
+        if '\n' in user_query.strip():
             query_type = "conversational"
-            lines = user_query.strip().split('\n')
-            formatted_lines = [f"{i}. {line.strip()}" for i, line in enumerate(lines, 1) if line.strip()]
-            api_query = "\n".join(formatted_lines)
+            if '1.' not in user_query.strip() : 
+                lines = user_query.strip().split('\n')
+                formatted_lines = [f"{i}. {line.strip()}" for i, line in enumerate(lines, 1) if line.strip()]
+                api_query = "\n".join(formatted_lines)
         else:
             query_type = "single"
 
@@ -502,6 +503,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
