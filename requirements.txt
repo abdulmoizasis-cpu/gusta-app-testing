@@ -10,5 +10,6 @@ sshtunnel==0.4.0
 paramiko==2.12.0
 python-dotenv
 st-copy-to-clipboard
+streamlit_extras
 
 

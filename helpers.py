@@ -1,6 +1,7 @@
 import json, ast, yaml, urllib, re, difflib, db_utils, streamlit as st
 from st_copy_to_clipboard import st_copy_to_clipboard
 from keywords_check import *
+from streamlit_extras.stylable_container import stylable_container
 
 def parse_csv_text_to_json(text_from_csv):
     if not isinstance(text_from_csv, str) or not text_from_csv.strip():
@@ -127,8 +128,8 @@ def get_diff(text1, text2):
 def render_diff(opcodes, lines1, lines2):
     left_html, right_html = [], []
     style = "white-space: pre-wrap; font-family: monospace; padding: 5px; border-radius: 5px; margin-bottom: 2px;"
-    insert_style = f"background-color: #ff9999; color: #000; {style}"
-    delete_style = f"background-color: #99ff99; color: #000; {style}"
+    insert_style = f"background-color: #99ff99; color: #000; {style}"
+    delete_style = f"background-color: #ff9999; color: #000; {style}"
 
     for tag, i1, i2, j1, j2 in opcodes:
         if tag == 'equal':
@@ -205,6 +206,19 @@ def display_diff(title, old_data, new_data, row_id, column_name, new_raw_data, b
 def display_result_expander(result, buttons_enabled=False):
     if not result:
         return
+    
+    st.markdown("""
+    <style>
+    /* Make ONLY the copy-to-clipboard button neutral on hover */
+    div[data-testid="stCopyToClipboard"] button[data-baseweb="button"]:hover {
+        background-color: #f0f2f6 !important;
+        color: #31333f !important;
+        border-color: #f0f2f6 !important;
+        box-shadow: none !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
 
     if result.get('status') == 'deleted_duplicate':
         st.error(f"Row ID {result['id']}: {result['error']}")
@@ -218,9 +232,38 @@ def display_result_expander(result, buttons_enabled=False):
 
             st.text_area("User Query:", result['user_query'], height=30, key=f"query_{result['id']}")
             
-            action_cols = st.columns(6)
+            action_cols = st.columns(2)
             with action_cols[0]:
-                st_copy_to_clipboard(result['user_query'], "Copy Query", key=f"copy_{result['id']}")
+                from streamlit_extras.stylable_container import stylable_container
+                with stylable_container(
+                    key=f"neutral_copy_{result['id']}",
+                    css_styles="""
+                    {
+                      /* scope the primary color only for descendants of this container */
+                      --primary-color: #f0f2f6;
+                      --text-color: #31333f;
+                    }
+                    /* Streamlit/BaseWeb button inside the copy widget */
+                    div[data-testid="stCopyToClipboard"] button[data-baseweb="button"] {
+                        /* optional: ensure default state is not tinted */
+                        box-shadow: none !important;
+                        border-color: transparent !important;
+                    }
+                    div[data-testid="stCopyToClipboard"] button[data-baseweb="button"]:hover {
+                        background-color: #f0f2f6 !important;
+                        color: #31333f !important;
+                        border-color: #f0f2f6 !important;
+                        box-shadow: none !important;
+                    }
+                    div[data-testid="stCopyToClipboard"] button[data-baseweb="button"]:focus,
+                    div[data-testid="stCopyToClipboard"] button[data-baseweb="button"]:focus-visible {
+                        outline: none !important;
+                        box-shadow: none !important;
+                        border-color: #f0f2f6 !important;
+                    }
+                    """
+                ):
+                    st_copy_to_clipboard(result['user_query'], "Copy Query", key=f"copy_{result['id']}")
 
             if buttons_enabled:
                 with action_cols[1]:
@@ -232,15 +275,6 @@ def display_result_expander(result, buttons_enabled=False):
                         }
                         update_database_record(result['id'], updates)
                         st.toast(f"All outputs for row `{result['id']}` replaced.", icon="🔄")
-                with action_cols[2]:
-                    if st.button("Clear All Cells", key=f"clear_all_{result['id']}"):
-                        updates = {
-                            'ner_output': "",
-                            'search_list_chain_output': "",
-                            'final_output': ""
-                        }
-                        update_database_record(result['id'], updates)
-                        st.toast(f"All outputs for row `{result['id']}` cleared.", icon="🗑️")
                 
             if result["failures"]["ner"]:
                 display_diff("NER Output Difference", result["data"]["old_ner"], result["data"]["new_ner_raw"], result['id'], 'ner_output', result['data']['new_ner_raw'], buttons_enabled)
