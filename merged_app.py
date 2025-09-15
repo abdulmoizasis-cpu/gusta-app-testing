@@ -45,7 +45,7 @@ def main():
     if 'analysis_summary' not in st.session_state:
         st.session_state.analysis_summary = None
 
-    df = db_utils.fetch_dataframe("llm", "SELECT * FROM test_results WHERE id = '68'")
+    df = db_utils.fetch_dataframe("llm", "SELECT * FROM test_results")
 
     if df is not None:
         st.success(f"Successfully loaded {len(df)} rows from the database.")
@@ -66,7 +66,7 @@ def main():
         total_rows = len(df)
         live_results = []
         
-        with ThreadPoolExecutor(max_workers=1) as executor:
+        with ThreadPoolExecutor(max_workers=5) as executor:
             future_to_row = {executor.submit(process_row, row['id'], row): row['id'] for index, row in df.iterrows()}
             
             processed_count = 0
