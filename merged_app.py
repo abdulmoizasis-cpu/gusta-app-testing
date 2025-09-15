@@ -10,13 +10,6 @@ st.title("Agentic-flow tester")
 st.markdown("Click Run Analysis to start the tester.")
 
 def main():
-    try:
-        with open("index.html", "r") as f:
-            html_string = f.read()
-            components.html(html_string, height=0, width=0) # height=0 makes it invisible
-    except FileNotFoundError:
-        st.warning("index.html not found. Button styling will not be applied.")
-        
     if 'analysis_results' not in st.session_state:
         st.session_state.analysis_results = None
     if 'analysis_running' not in st.session_state:
