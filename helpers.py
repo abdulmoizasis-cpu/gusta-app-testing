@@ -223,7 +223,7 @@ def display_result_expander(result, buttons_enabled=False):
             with action_cols[0]:
                 # Wrap the button in the stylable_container
                 with stylable_container(
-                    "copy_button_container",
+                    key=f"copy_button_container_{result['id']}", # <-- Use the unique result ID to create a unique key
                     css_styles="""
                     button {
                         background-color: #2E8B57; /* A neutral green */
