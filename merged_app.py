@@ -66,7 +66,7 @@ def main():
         total_rows = len(df)
         live_results = []
         
-        with ThreadPoolExecutor(max_workers=5) as executor:
+        with ThreadPoolExecutor(max_workers=1) as executor:
             future_to_row = {executor.submit(process_row, row['id'], row): row['id'] for index, row in df.iterrows()}
             
             processed_count = 0
