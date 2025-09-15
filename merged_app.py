@@ -3,6 +3,7 @@ from streams import *
 from process_functions import *
 from process_row import *
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import streamlit.components.v1 as components # Make sure to import components
 
 st.set_page_config(layout="wide")
 st.title("Agentic-flow tester")
