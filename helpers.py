@@ -220,7 +220,20 @@ def display_result_expander(result, buttons_enabled=False):
             
             action_cols = st.columns(2)
             with action_cols[0]:
-                st_copy_to_clipboard(result['user_query'], "Copy Query", key=f"copy_{result['id']}")
+                # Wrap the button in the stylable_container
+                with stylable_container(
+                    "copy_button_container",
+                    css_styles="""
+                    button {
+                        background-color: #2E8B57; /* A neutral green */
+                        color: white;
+                    }
+                    button:hover {
+                        background-color: #3CB371; /* A lighter green for hover */
+                    }
+                    """,
+                ):
+                    st_copy_to_clipboard(result['user_query'], "Copy Query", key=f"copy_{result['id']}")
 
             if buttons_enabled:
                 with action_cols[1]:
