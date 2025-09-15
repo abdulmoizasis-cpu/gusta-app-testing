@@ -20,43 +20,42 @@ def process_row(index, row):
     api_query = user_query
     query_type = None
 
-    if is_new_row:
-        if '\n' in user_query.strip():
-            query_type = "conversational"
-            if '1.' not in user_query.strip() : 
-                lines = user_query.strip().split('\n')
-                formatted_lines = [f"{i}. {line.strip()}" for i, line in enumerate(lines, 1) if line.strip()]
-                api_query = "\n".join(formatted_lines)
-        else:
-            query_type = "single"
-
-        existing_query_df = db_utils.fetch_dataframe(
-            "llm",
-            "SELECT id FROM `test_results` WHERE `user_query` = :user_query AND `id` != :current_id AND (`ner_output` IS NOT NULL AND `ner_output` != '')",
-            params={'user_query': api_query, 'current_id': index}
-        )
-
-        if existing_query_df is not None and not existing_query_df.empty:
-            delete_query = "DELETE FROM `test_results` WHERE `id` = :id"
-            db_utils.execute_query("llm", delete_query, params={'id': index})
-            return {
-                "id": index,
-                "failed": False,
-                "status": "skipped_duplicate",
-                "error": f"Skipped: Duplicate of a processed query found in row ID {existing_query_df.iloc[0]['id']}"
-            }
+    if '\n' in user_query.strip():
+        query_type = "conversational"
+        if '1.' not in user_query.strip() : 
+            lines = user_query.strip().split('\n')
+            formatted_lines = [f"{i}. {line.strip()}" for i, line in enumerate(lines, 1) if line.strip()]
+            api_query = "\n".join(formatted_lines)
+        else :
+            lines = user_query.strip().split('\n')
+            formatted_lines = []
+            for line in lines:
+                clean_line = line.strip()
+                if clean_line:
+                    parts = clean_line.split('.', 1)
+                    if len(parts) == 2:
+                        formatted_lines.append(parts[0].strip() + '.' + parts[1].lstrip())
+                    else:
+                        formatted_lines.append(clean_line)
+            api_query = "\n".join(formatted_lines)
     else:
-        query_type = row.get("query_type", "")
-        if not query_type:
-            if '\n' in user_query.strip():
-                query_type = "conversational"
-                if '1.' not in user_query.strip():
-                    lines = user_query.strip().split('\n')
-                    formatted_lines = [f"{i}. {line.strip()}" for i, line in enumerate(lines, 1) if line.strip()]
-                    api_query = "\n".join(formatted_lines)
-            else:
-                query_type = "single"
+        query_type = "single"
 
+    existing_query_df = db_utils.fetch_dataframe(
+        "llm",
+        "SELECT id FROM `test_results` WHERE `user_query` = :user_query AND `id` != :current_id",
+        params={'user_query': api_query, 'current_id': index}
+    )
+
+    if existing_query_df is not None and not existing_query_df.empty:
+        delete_query = "DELETE FROM `test_results` WHERE `id` = :id"
+        db_utils.execute_query("llm", delete_query, params={'id': index})
+        return {
+            "id": index,
+            "failed": False,
+            "status": "skipped_duplicate",
+            "error": f"Skipped: Duplicate of a processed query found in row ID {existing_query_df.iloc[0]['id']}"
+        }
 
     old_ner = parse_csv_text_to_json(old_ner_raw)
     if old_ner:

@@ -6,6 +6,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 st.set_page_config(layout="wide")
 st.title("Agentic-flow tester")
+st.markdown("Click Run Analysis to start the tester.")
 
 def main():
     if 'analysis_results' not in st.session_state:
