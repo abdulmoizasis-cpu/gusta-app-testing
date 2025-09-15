@@ -8,35 +8,6 @@ st.set_page_config(layout="wide")
 st.title("Agentic-flow tester")
 st.markdown("Click Run Analysis to start the tester.")
 
-
-st.markdown("""
-<style>
-    /* This targets all button elements in the app */
-    button {
-        background-color: #2E8B57; /* Default background color */
-        color: #F5F5F5; /* Default text color */
-        border: none;
-        padding: 10px 20px;
-        text-align: center;
-        text-decoration: none;
-        display: inline-block;
-        font-size: 16px;
-        margin: 4px 2px;
-        cursor: pointer;
-        border-radius: 8px;
-        transition: all 0.3s ease-in-out; /* Adds a smooth transition effect */
-    }
-
-    /* This targets all buttons on hover */
-    button:hover {
-        background-color: #3CB371; /* Background color on hover */
-        color: white; /* Text color on hover */
-        box-shadow: 0 4px 8px 0 rgba(0,0,0,0.2);
-    }
-</style>
-""", unsafe_allow_html=True)
-
-
 def main():
     if 'analysis_results' not in st.session_state:
         st.session_state.analysis_results = None
