@@ -225,10 +225,13 @@ def display_result_expander(result, buttons_enabled=False):
             if buttons_enabled:
                 with action_cols[1]:
                     if st.button("Replace All Cells", key=f"replace_all_{result['id']}"):
+                        new_ner_raw = result['data']['new_ner_raw']
+                        new_search_raw = result['data']['new_search_raw']
+                        new_final_raw = result['data']['new_final_raw']
                         updates = {
-                            'ner_output': result['data']['new_ner_raw'],
-                            'search_list_chain_output': result['data']['new_search_raw'],
-                            'final_output': result['data']['new_final_raw']
+                            'ner_output':  json.dumps(new_ner_raw) if isinstance(new_ner_raw, (dict, list)) else new_ner_raw,
+                            'search_list_chain_output': json.dumps(new_search_raw) if isinstance(new_search_raw, (dict, list)) else new_search_raw,
+                            'final_output': json.dumps(new_final_raw) if isinstance(new_final_raw, (dict, list)) else new_final_raw
                         }
                         update_database_record(result['id'], updates)
                         st.toast(f"All outputs for row `{result['id']}` replaced.", icon="🔄")
