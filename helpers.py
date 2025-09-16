@@ -88,14 +88,12 @@ def reverse_engineer_search_output(api_url, inverse_map):
         field_value = field.get("value")
 
         if is_date_value(field_value):
-            # Format as a date field
             reconstructed_fields.append({
                 "field_name": field_name,
                 "field_type": "date",
                 "field_value": field_value
             })
         else:
-            # Format as a standard field with a numeric ID
             numeric_id = inverse_map.get(field_name, {}).get(search_name, "N/A")
             for value in field_value.split('|'):
                 reconstructed_fields.append({
@@ -164,16 +162,22 @@ def update_database_record(record_id, updates):
         return
 
     set_clauses = ", ".join([f"`{col}` = :{col}" for col in updates.keys()])
-    query = f"UPDATE `test_results` SET {set_clauses} WHERE `id` = :id"
     
-    params = updates.copy()
-    params['id'] = record_id
+    if isinstance(record_id, list):
+        if not record_id: return
+        id_placeholders = ", ".join([f":id_{i}" for i in range(len(record_id))])
+        query = f"UPDATE `test_results` SET {set_clauses} WHERE `id` IN ({id_placeholders})"
+        params = updates.copy()
+        for i, r_id in enumerate(record_id):
+            params[f"id_{i}"] = r_id
+    else:
+        query = f"UPDATE `test_results` SET {set_clauses} WHERE `id` = :id"
+        params = updates.copy()
+        params['id'] = record_id
     
     db_utils.execute_query("llm", query, params)
 
 def display_diff(title, old_data, new_data, row_id, column_name, new_raw_data, buttons_enabled=False):
-    st.subheader(title)
-
     if title == "NER Output Difference":
         parsed_old_data = parse_csv_text_to_json(old_data) if isinstance(old_data, str) else old_data
         
@@ -202,51 +206,96 @@ def display_diff(title, old_data, new_data, row_id, column_name, new_raw_data, b
         st.markdown("<h5>New</h5>", unsafe_allow_html=True)
         st.markdown(right_html, unsafe_allow_html=True)
 
+def render_expander_content(result, buttons_enabled=False):
+    """Renders the internal content of a result expander."""
+    if result.get('error'):
+        st.error(f"Could not process row: {result['error']}")
+        return
+
+    st.text_area("User Query:", result['user_query'], height=30, key=f"query_{result['id']}")
+    
+    action_cols = st.columns(3)
+    with action_cols[0]:
+        st_copy_to_clipboard(result['user_query'], "Copy Query", key=f"copy_{result['id']}")
+
+    if buttons_enabled:
+        with action_cols[1]:
+            # This is where the "Replace All Cells" button logic goes
+            if st.button("Replace All Cells", key=f"replace_all_{result['id']}"):
+                new_ner_raw = result['data']['new_ner_raw']
+                new_search_raw = result['data']['new_search_raw']
+                new_final_raw = result['data']['new_final_raw']
+                updates = {
+                    'ner_output':  json.dumps(new_ner_raw) if isinstance(new_ner_raw, (dict, list)) else new_ner_raw,
+                    'search_list_chain_output': json.dumps(new_search_raw) if isinstance(new_search_raw, (dict, list)) else new_search_raw,
+                    'final_output': json.dumps(new_final_raw) if isinstance(new_final_raw, (dict, list)) else new_final_raw
+                }
+                update_database_record(result['id'], updates)
+                st.toast(f"All outputs for row `{result['id']}` replaced.", icon="🔄")
+
+        with action_cols[2]:
+            if st.button("Add Alternative Row", key=f"add_full_alt_{result['id']}"):
+                row_id = result['id'].split('-')[0]
+                new_data = {
+                    'ner_output': result['data']['new_ner_raw'],
+                    'search_list_chain_output': result['data']['new_search_raw'],
+                    'final_output': result['data']['new_final_raw']
+                }
+                db_utils.add_full_alternative_record(row_id, new_data)
+                st.toast(f"New alternative row added for group '{row_id}'. Please rerun analysis.", icon="✅")
+        
+    if result["failures"]["ner"]:
+        col1, col2 = st.columns([3, 1])
+        with col1:
+            st.subheader("NER Output Difference")
+        if buttons_enabled:
+            with col2:
+                if st.button("Add as NER Alternative", key=f"add_alt_ner_{result['id']}", use_container_width=True):
+                    row_id = result['id'].split('-')[0]
+                    new_raw_data = result['data']['new_ner_raw']
+                    db_utils.add_alternative_record(row_id=row_id, column_to_update='ner_output', new_data=new_raw_data)
+                    st.toast(f"New NER alternative added for group '{row_id}'. Please rerun analysis to see changes.", icon="✅")
+        display_diff("NER Output Difference", result["data"]["old_ner"], result["data"]["new_ner"], result['id'], 'ner_output', result['data']['new_ner_raw'])
+        st.divider()
+
+    if not isinstance(result["data"]["new_ner_raw"], str) or not result["data"]["new_ner_raw"].startswith("Retried"):
+        if result["failures"]["search"]:
+            col1, col2 = st.columns([3, 1])
+            with col1:
+                st.subheader("Search Output Difference")
+            if buttons_enabled:
+                with col2:
+                    if st.button("Add as Search Alternative", key=f"add_alt_search_{result['id']}", use_container_width=True):
+                        row_id = result['id'].split('-')[0]
+                        new_raw_data = result['data']['new_search_raw']
+                        db_utils.add_alternative_record(row_id=row_id, column_to_update='search_list_chain_output', new_data=new_raw_data)
+                        st.toast(f"New Search alternative added for group '{row_id}'. Please rerun analysis to see changes.", icon="✅")
+            display_diff("Search Output Difference", result["data"]["old_search"], result["data"]["new_search"], result['id'], 'search_list_chain_output', result['data']['new_search_raw'])
+            st.divider()
+
+        if result["failures"]["final"]:
+            col1, col2 = st.columns([3, 1])
+            with col1:
+                st.subheader("Final Output Difference")
+            if buttons_enabled:
+                with col2:
+                    if st.button("Add as Final Alternative", key=f"add_alt_final_{result['id']}", use_container_width=True):
+                        row_id = result['id'].split('-')[0]
+                        new_raw_data = result['data']['new_final_raw']
+                        db_utils.add_alternative_record(row_id=row_id, column_to_update='final_output', new_data=new_raw_data)
+                        st.toast(f"New Final Output alternative added for group '{row_id}'. Please rerun analysis to see changes.", icon="✅")
+            display_diff("Final Output Difference", result["data"]["old_final"], result["data"]["new_final"], result['id'], 'final_output', result['data']['new_final_raw'])
+
 def display_result_expander(result, buttons_enabled=False):
+    """Creates the expander for a single result and calls the content renderer."""
     if not result:
         return
-
     if result.get('status') == 'deleted_duplicate':
-        st.error(f"Row ID {result['id']}: {result['error']}")
+        st.error(f"ID {result['id']}: {result['error']}")
         return
-
     if result.get('failed'):
-        with st.expander(f"🚨 Row ID: {result['id']}"):
-            if result.get('error'):
-                st.error(f"Could not process row: {result['error']}")
-                return
-
-            st.text_area("User Query:", result['user_query'], height=30, key=f"query_{result['id']}")
-            
-            action_cols = st.columns(2)
-            with action_cols[0]:
-                st_copy_to_clipboard(result['user_query'], "Copy Query", key=f"copy_{result['id']}")
-
-            if buttons_enabled:
-                with action_cols[1]:
-                    if st.button("Replace All Cells", key=f"replace_all_{result['id']}"):
-                        new_ner_raw = result['data']['new_ner_raw']
-                        new_search_raw = result['data']['new_search_raw']
-                        new_final_raw = result['data']['new_final_raw']
-                        updates = {
-                            'ner_output':  json.dumps(new_ner_raw) if isinstance(new_ner_raw, (dict, list)) else new_ner_raw,
-                            'search_list_chain_output': json.dumps(new_search_raw) if isinstance(new_search_raw, (dict, list)) else new_search_raw,
-                            'final_output': json.dumps(new_final_raw) if isinstance(new_final_raw, (dict, list)) else new_final_raw
-                        }
-                        update_database_record(result['id'], updates)
-                        st.toast(f"All outputs for row `{result['id']}` replaced.", icon="🔄")
-                
-            if result["failures"]["ner"]:
-                display_diff("NER Output Difference", result["data"]["old_ner"], result["data"]["new_ner_raw"], result['id'], 'ner_output', result['data']['new_ner_raw'], buttons_enabled)
-                st.divider()
-
-            if not isinstance(result["data"]["new_ner_raw"], str) or not result["data"]["new_ner_raw"].startswith("Retried"):
-                if result["failures"]["search"]:
-                    display_diff("Search Output Difference", result["data"]["old_search"], result["data"]["new_search"], result['id'], 'search_list_chain_output', result['data']['new_search_raw'], buttons_enabled)
-                    st.divider()
-
-                if result["failures"]["final"]:
-                    display_diff("Final Output Difference", result["data"]["old_final"], result["data"]["new_final"], result['id'], 'final_output', result['data']['new_final_raw'], buttons_enabled)
+        with st.expander(f"🚨 ID: {result['id']}"):
+            render_expander_content(result, buttons_enabled)
 
 
 reconstructed_search_mapping = {

@@ -1,25 +1,53 @@
 from process_functions import *
 import pandas as pd
 
-def process_row(index, row):
-    user_query = row.get('user_query', "")
+def process_row_group(row_id, group_df):
+    """
+    Processes a group of rows (alternatives) for a single user_query.
+    Makes one API call and compares the result against each alternative.
+    """
+    # Use the first row in the group to get the user_query and determine query type
+    base_row = group_df.iloc[0]
+    user_query = base_row.get('user_query', "")
     if not user_query:
-        return None
+        return []
+    
+    existing_query_df = db_utils.fetch_dataframe(
+        "llm",
+        "SELECT row_id FROM `test_results` WHERE `user_query` = :user_query AND `row_id` != :current_row_id LIMIT 1",
+        params={'user_query': user_query, 'current_row_id': row_id}
+    )
 
-    old_ner_raw = row.get('ner_output', "")
-    old_search_raw = row.get('search_list_chain_output', "")
-    old_final_raw = row.get('final_output', "")
-    old_ner_intent, new_ner_intent, old_ner_search_fields, new_ner_search_fields, old_chain_field_values, new_chain_field_values, new_ner_date_filter, old_ner_date_filter = "", "", "", "", "", "", "", ""
-    ref_new_chain_field_values,ref_new_ner_leaf_entities, ref_new_ner_search_fields, ref_old_chain_field_values, ref_old_ner_leaf_entities, ref_old_ner_search_fields = "", "", "", "", "", ""
-    old_ner_leaf_entities, new_ner_leaf_entities = "", ""
+    if existing_query_df is not None and not existing_query_df.empty:
+        delete_query = "DELETE FROM `test_results` WHERE `row_id` = :row_id"
+        db_utils.execute_query("llm", delete_query, params={'row_id': row_id})
+        return [{
+            "id": f"{row_id}-0",
+            "failed": False,
+            "status": "deleted_duplicate",
+            "error": f"Deleted group '{row_id}': Duplicate of a query found in group '{existing_query_df.iloc[0]['row_id']}'"
+        }]
+    
+    empty_rows_in_group = group_df[pd.isnull(group_df['ner_output'])]
 
-    is_new_row = (pd.isnull(old_ner_raw) or old_ner_raw == "") and \
-                 (pd.isnull(old_search_raw) or old_search_raw == "") and \
-                 (pd.isnull(old_final_raw) or old_final_raw == "")
-
+    if not empty_rows_in_group.empty:
+        check_query = "SELECT 1 FROM `test_results` WHERE `user_query` = :user_query AND `ner_output` IS NOT NULL LIMIT 1"
+        established_df = db_utils.fetch_dataframe("llm", check_query, params={'user_query': api_query})
+        if established_df is not None and not established_df.empty:
+            ids_to_delete = empty_rows_in_group['id'].tolist()
+            id_placeholders = ", ".join([f":id_{i}" for i in range(len(ids_to_delete))])
+            delete_query = f"DELETE FROM `test_results` WHERE `id` IN ({id_placeholders})"
+            params = {f"id_{i}": r_id for i, r_id in enumerate(ids_to_delete)}
+            db_utils.execute_query("llm", delete_query, params=params)
+            return [{
+                "id": f"{row_id}-0",
+                "failed": False,
+                "status": "deleted_duplicate",
+                "error": f"Deleted {len(ids_to_delete)} empty duplicate row(s) from group '{row_id}'."
+            }]
+    
     api_query = user_query
-    query_type = None
-
+    query_type = "single"
     if '\n' in user_query.strip():
         query_type = "conversational"
         if '1.' not in user_query.strip() : 
@@ -38,165 +66,162 @@ def process_row(index, row):
                     else:
                         formatted_lines.append(clean_line)
             api_query = "\n".join(formatted_lines)
+
+    if query_type == "conversational":
+        new_ner_raw, new_search_raw, new_final_raw, new_ner, new_search, new_final, new_time_stamp, new_ner_intent, new_ner_search_fields, new_ner_leaf_entities, new_ner_date_filter, new_chain_field_values = process_convo_row(api_query, row_id, user_query, None, None)
     else:
-        query_type = "single"
+        new_ner_raw, new_search_raw, new_final_raw, new_ner, new_search, new_final, new_time_stamp, new_ner_intent, new_ner_search_fields, new_ner_leaf_entities, new_ner_date_filter, new_chain_field_values = process_single_row(api_query, row_id, user_query, None, None)
 
-    existing_query_df = db_utils.fetch_dataframe(
-        "llm",
-        "SELECT id FROM `test_results` WHERE `user_query` = :user_query AND `id` != :current_id",
-        params={'user_query': api_query, 'current_id': index}
-    )
-
-    if existing_query_df is not None and not existing_query_df.empty:
-        delete_query = "DELETE FROM `test_results` WHERE `id` = :id"
-        db_utils.execute_query("llm", delete_query, params={'id': index})
-        return {
-            "id": index,
-            "failed": False,
-            "status": "skipped_duplicate",
-            "error": f"Skipped: Duplicate of a processed query found in row ID {existing_query_df.iloc[0]['id']}"
-        }
-
-    old_ner = parse_csv_text_to_json(old_ner_raw)
-    if old_ner:
-        old_ner_intent = old_ner.get("intent", "")
-        old_ner_search_fields = old_ner.get("search_fields", "")
-        old_ner_leaf_entities = old_ner.get("leaf_entities", "")
-        if old_ner_search_fields:
-            old_ner_date_filter =[field.get("date_filter", "").get("value", "") for field in old_ner_search_fields if isinstance(field, dict)]
-            old_ner_search_fields = [field for field in old_ner_search_fields if not isinstance(field, dict)]
-    
-    old_search = convert_yaml_text_to_json(old_search_raw)
-    if old_search and "feedback_message" in old_search:
-        old_search.pop("feedback_message")
-
-    if old_search :
-        old_chain_search_fields = old_search.get("search_fields", "")
-        old_chain_field_values = [item.get("field_value", "") for item in old_chain_search_fields if item.get("field_type", "") != "date"]
-
-    if isinstance(old_final_raw, dict) :
-        old_final = old_final_raw['url']
-    elif old_final_raw :
-        old_final = extract_url(old_final_raw)
-    else:
-        old_final = ""
-
-    if query_type == "conversational" :
-        new_ner_raw, new_search_raw, new_final_raw , new_ner, new_search, new_final, new_time_stamp, new_ner_intent, new_ner_search_fields, new_ner_leaf_entities, new_ner_date_filter, new_chain_field_values = process_convo_row(api_query, index, user_query, old_ner, old_ner_intent)
-    elif query_type == "single" :
-        new_ner_raw, new_search_raw, new_final_raw, new_ner, new_search, new_final, new_time_stamp, new_ner_intent, new_ner_search_fields, new_ner_leaf_entities, new_ner_date_filter, new_chain_field_values = process_single_row(api_query, index, user_query, old_ner, old_ner_intent)
-    
-    if new_ner_raw and isinstance(new_ner_raw, str) and (new_ner_raw.startswith("Conversational") or new_ner_raw.startswith("Retried")): 
-        return {
-            "id": index,
+    if new_ner_raw and isinstance(new_ner_raw, str) and (new_ner_raw.startswith("Conversational") or new_ner_raw.startswith("Retried")):
+        return [{
+            "id": f"{row_id}-0",
             "user_query": user_query,
             "failed": True,
-            "failures": {
-                "ner": True,
-                "search": False,
-                "final": False
-                },
+            "failures": {"ner": True, "search": False, "final": False},
             "data": {
-                "old_ner": old_ner,
-                "new_ner_raw": new_ner_raw}
+                "old_ner": parse_csv_text_to_json(base_row.get('ner_output', "")),
+                "new_ner_raw": new_ner_raw
             }
+        }]
     
-    ner_flag = False
-    final_flag = False
-    search_flag= False
+    any_match_found = False
+    comparison_results = []
 
-    ref_old_ner_search_fields = old_ner_search_fields
-    ref_new_ner_search_fields = new_ner_search_fields
+    # --- 2. Iterate through each alternative and compare ---
+    for _, alt_row in group_df.iterrows():
+        current_id = alt_row['id']
+        old_ner_raw = alt_row.get('ner_output', "")
+        old_search_raw = alt_row.get('search_list_chain_output', "")
+        old_final_raw = alt_row.get('final_output', "")
+
+        # --- Parse Old Data for this alternative ---
+        old_ner = parse_csv_text_to_json(old_ner_raw)
+        old_ner_intent, old_ner_search_fields, old_ner_leaf_entities, old_ner_date_filter = "", "", "", ""
+        if old_ner:
+            old_ner_intent = old_ner.get("intent", "")
+            old_ner_search_fields = old_ner.get("search_fields", "")
+            old_ner_leaf_entities = old_ner.get("leaf_entities", "")
+            if old_ner_search_fields:
+                old_ner_date_filter = [field.get("date_filter", "").get("value", "") for field in old_ner_search_fields if isinstance(field, dict)]
+                old_ner_search_fields = [field for field in old_ner_search_fields if not isinstance(field, dict)]
+
+        old_search = convert_yaml_text_to_json(old_search_raw)
+        if old_search and "feedback_message" in old_search:
+            old_search.pop("feedback_message")
+
+        old_chain_field_values = ""
+        if old_search:
+            old_chain_search_fields = old_search.get("search_fields", "")
+            old_chain_field_values = [item.get("field_value", "") for item in old_chain_search_fields if item.get("field_type", "") != "date"]
+        
+        if isinstance(old_final_raw, dict) :
+            old_final = old_final_raw['url']
+        elif old_final_raw :
+            old_final = extract_url(old_final_raw)
+        else:
+            old_final = ""
+
+        # --- Perform Comparison Logic ---
+        ner_flag, search_flag, final_flag = False, False, False
+
+        ref_old_ner_search_fields, ref_new_ner_search_fields = remove_plural_pairs(old_ner_search_fields, new_ner_search_fields) if (bool(old_ner_search_fields) and bool(new_ner_search_fields)) else (old_ner_search_fields, new_ner_search_fields)
+        ref_old_ner_leaf_entities, ref_new_ner_leaf_entities = remove_plural_pairs(old_ner_leaf_entities, new_ner_leaf_entities) if (bool(old_ner_leaf_entities) and bool(new_ner_leaf_entities)) else (old_ner_leaf_entities, new_ner_leaf_entities)
+        ref_old_chain_field_values, ref_new_chain_field_values = remove_plural_pairs(old_chain_field_values, new_chain_field_values) if (bool(old_chain_field_values) and bool(new_chain_field_values)) else (old_chain_field_values, new_chain_field_values)
+
+        if (new_ner_intent != old_ner_intent) or (bool(old_ner_date_filter) != bool(new_ner_date_filter)) or (calculate_similarity(ref_old_ner_search_fields, ref_new_ner_search_fields)) or calculate_similarity(ref_old_ner_leaf_entities, ref_new_ner_leaf_entities):
+            ner_flag = True
+        
+        search_flag = bool(set(ref_old_chain_field_values) ^ set(ref_new_chain_field_values)) or (bool(old_chain_field_values) != bool(new_chain_field_values))
+        
+        final_flag = (old_final != new_final)
+
+        is_failure = ner_flag or search_flag
+
+        if (is_failure) and not final_flag:
+            is_failure = False 
+            ner_flag = False
+            search_flag = False
+
+        is_new_row = (pd.isnull(old_ner_raw) or old_ner_raw == "") and \
+                     (pd.isnull(old_search_raw) or old_search_raw == "") and \
+                     (pd.isnull(old_final_raw) or old_final_raw == "")
+
+        if is_new_row:
+            updates = {
+                'ner_output': json.dumps(new_ner_raw) if isinstance(new_ner_raw, (dict, list)) else new_ner_raw,
+                'search_list_chain_output': json.dumps(new_search_raw) if isinstance(new_search_raw, (dict, list)) else new_search_raw,
+                'final_output': json.dumps(new_final_raw) if isinstance(new_final_raw, (dict, list)) else new_final_raw,
+                'query_type': query_type
+            }
+            update_database_record(current_id, updates)
+            ner_flag, search_flag, final_flag = False, False, False
+            is_failure = False
     
-    ref_old_ner_leaf_entities = old_ner_leaf_entities
-    ref_new_ner_leaf_entities = new_ner_leaf_entities
 
-    ref_old_chain_field_values = old_chain_field_values
-    ref_new_chain_field_values = new_chain_field_values
-
-    if bool(old_ner_search_fields) and bool(new_ner_search_fields) :
-        ref_old_ner_search_fields, ref_new_ner_search_fields = remove_plural_pairs(old_ner_search_fields, new_ner_search_fields)
-
-    if bool(old_ner_leaf_entities) and bool(new_ner_leaf_entities) :
-        ref_old_ner_leaf_entities, ref_new_ner_leaf_entities = remove_plural_pairs(old_ner_leaf_entities, new_ner_leaf_entities)
-
-    if bool(old_chain_field_values) and bool(new_chain_field_values) :
-        ref_old_chain_field_values, ref_new_chain_field_values = remove_plural_pairs(old_chain_field_values, new_chain_field_values)
-
-    if (new_ner_intent != old_ner_intent) or (bool(old_ner_date_filter) != bool(new_ner_date_filter)) or (calculate_similarity(ref_old_ner_search_fields, ref_new_ner_search_fields)) or calculate_similarity(ref_old_ner_leaf_entities, ref_new_ner_leaf_entities):
-        ner_flag = True
-
-    search_flag = bool(set(ref_old_chain_field_values) ^ set(ref_new_chain_field_values)) or (bool(old_chain_field_values) != bool(new_chain_field_values))
-
-    print(f"\n--- Row ID: {index} ---")
-    print(f"Old Chain Field Values: {old_chain_field_values}")
-    print(f"New Chain Field Values: {new_chain_field_values}")
-    print(f"Search flag :{search_flag}")
-    print(f"----------------------------------------")
-    print(f"old_ner_intent: {old_ner_intent}")
-    print(f"new_ner_intent: {new_ner_intent}\n")
-    print(f"old_ner_date_filter: {old_ner_date_filter}")
-    print(f"new_ner_date_filtert: {new_ner_date_filter}\n")
-    print(f"old_ner_search_fields: {old_ner_search_fields}")
-    print(f"new_ner_search_fields: {new_ner_search_fields}\n")
-    print(f"new_ner_search_fields_type:{bool(new_ner_search_fields)}")
-    print(f"ref_old_ner_search_fields: {ref_old_ner_search_fields}")
-    print(f"ref_new_ner_search_fields: {ref_new_ner_search_fields}\n")
-    print(f"old_ner_leaf_entities: {ref_old_ner_leaf_entities}")
-    print(f"new_ner_leaf_entities: {ref_new_ner_leaf_entities}\n")
-    print(f"Ner flag :{ner_flag}")
-
-    print(f"similarity between refs : {(calculate_similarity(ref_old_ner_search_fields, ref_new_ner_search_fields))}")
-    print(f"similarity between norm : {(calculate_similarity(old_ner_search_fields, new_ner_search_fields))}")
+        print(f"\n--- Row ID: {current_id} ---")
+        print(f"Old Chain Field Values: {old_chain_field_values}")
+        print(f"New Chain Field Values: {new_chain_field_values}")
+        print(f"Search flag :{search_flag}")
+        print(f"----------------------------------------")
+        print(f"old_ner_intent: {old_ner_intent}")
+        print(f"new_ner_intent: {new_ner_intent}\n")
+        print(f"old_ner_date_filter: {old_ner_date_filter}")
+        print(f"new_ner_date_filter: {new_ner_date_filter}\n")
+        print(f"old_ner_search_fields: {old_ner_search_fields}")
+        print(f"new_ner_search_fields: {new_ner_search_fields}\n")
+        # print(f"new_ner_search_fields_type:{bool(new_ner_search_fields)}")
+        print(f"ref_old_ner_search_fields: {ref_old_ner_search_fields}")
+        print(f"ref_new_ner_search_fields: {ref_new_ner_search_fields}\n")
+        print(f"old_ner_leaf_entities: {ref_old_ner_leaf_entities}")
+        print(f"new_ner_leaf_entities: {ref_new_ner_leaf_entities}\n")
+        print(f"Ner flag :{ner_flag}\n")
+        print(f"Final Flag : {final_flag}")
 
 
-    if (ner_flag or search_flag) :
-        if (old_final != new_final) :
-            final_flag = True
+        # print(f"similarity between refs : {(calculate_similarity(ref_old_ner_search_fields, ref_new_ner_search_fields))}")
+        # print(f"similarity between norm : {(calculate_similarity(old_ner_search_fields, new_ner_search_fields))}")
+        
+        if not is_failure:
+            any_match_found = True
+            break
 
-    updates_to_make = {}
-    updates_to_make['time_stamp'] = new_time_stamp
+        comparison_results.append({
+            "id": current_id,
+            "ner_flag": ner_flag,
+            "search_flag": search_flag,
+            "final_flag": final_flag
+        })
+            
+    update_database_record(
+        group_df['id'].tolist(), 
+        {'time_stamp': new_time_stamp}
+    )
+    # If no match was found after checking all alternatives, the group has failed.
+    if not any_match_found:
+        failed_results = []
+        # Use the recorded comparison results to build the final output
+        for result in comparison_results:
+            # Get the original row data corresponding to this result
+            alt_row = group_df[group_df['id'] == result['id']].iloc[0]
+            
+            failed_results.append({
+                "id": result['id'],
+                "user_query": user_query,
+                "failed": result['ner_flag'] or result['search_flag'] or result['final_flag'],
+                # Use the specific flags that were recorded during the comparison
+                "failures": {
+                    "ner": result['ner_flag'],
+                    "search": result['search_flag'],
+                    "final": result['final_flag']
+                },
+                "data": {
+                    "old_ner": parse_csv_text_to_json(alt_row.get('ner_output', "")), "new_ner": new_ner,
+                    "old_search": convert_yaml_text_to_json(alt_row.get('search_list_chain_output', "")), "new_search": new_search,
+                    "old_final": extract_url(alt_row.get('final_output', "")), "new_final": new_final,
+                    "new_ner_raw": new_ner_raw, "new_search_raw": new_search_raw, "new_final_raw": new_final_raw
+                }
+            })
+        return failed_results
 
-    if query_type == "conversational" :
-        updates_to_make['time_stamp'] = new_time_stamp
-        if pd.isnull(old_ner_raw) or old_ner_raw == "":
-            updates_to_make['ner_output'] = json.dumps(new_ner_raw) if isinstance(new_ner_raw, (dict, list)) else new_ner_raw
-        if pd.isnull(old_search_raw) or old_search_raw == "":
-            updates_to_make['search_list_chain_output'] = json.dumps(new_search_raw) if isinstance(new_search_raw, (dict, list)) else new_search_raw
-        if pd.isnull(old_final_raw) or old_final_raw == "":
-            updates_to_make['final_output'] = json.dumps(new_final_raw) if isinstance(new_final_raw, (dict, list)) else new_final_raw
-        if query_type:
-            updates_to_make['query_type'] = query_type
-            updates_to_make['user_query'] = api_query
-    else :
-        updates_to_make['time_stamp'] = new_time_stamp
-        if pd.isnull(old_ner_raw) or old_ner_raw == "":
-            updates_to_make['ner_output'] = new_ner_raw
-        if pd.isnull(old_search_raw) or old_search_raw == "":
-            updates_to_make['search_list_chain_output'] = new_search_raw
-        if pd.isnull(old_final_raw) or old_final_raw == "":
-            updates_to_make['final_output'] = new_final_raw
-        if query_type:
-            updates_to_make['query_type'] = query_type
-
-    if updates_to_make:
-        update_database_record(index, updates_to_make)
-
-    return {
-        "id": index,
-        "user_query": user_query,
-        "failed": (search_flag or ner_flag or final_flag),
-        "updates": updates_to_make,
-        "failures": {
-            "ner": ner_flag,
-            "search": search_flag,
-            "final": final_flag
-        },
-        "data": {
-            "old_ner": old_ner, "new_ner": new_ner,
-            "old_search": old_search, "new_search": new_search,
-            "old_final": old_final, "new_final": new_final,
-            "new_ner_raw": new_ner_raw,
-            "new_search_raw": new_search_raw,
-            "new_final_raw": new_final_raw}
-    }
+    # Otherwise, a match was found, and the group passes.
+    return []
