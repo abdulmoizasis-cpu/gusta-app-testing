@@ -2,6 +2,8 @@ from process_functions import *
 import pandas as pd
 
 def process_row_group(row_id, group_df):
+    new_ner_intent, new_ner_search_fields, new_chain_field_values, new_ner_date_filter= "", "", "", ""
+    new_ner_raw, new_search_raw, new_final_raw , new_ner, new_search, new_final, new_time_stamp = "", "", "", "", "", "", ""
     """
     Processes a group of rows (alternatives) for a single user_query.
     Makes one API call and compares the result against each alternative.
