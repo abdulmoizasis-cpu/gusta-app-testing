@@ -183,13 +183,13 @@ def add_alternative_record(row_id, column_to_update, new_data):
                 updated_record[key] = json.dumps(value)
 
         # Build and execute the INSERT query
-        columns = ", ".join([f"`{col}`" for col in updated_record.keys() if col in base_df.columns])
-        placeholders = ", ".join([f":{col}" for col in updated_record.keys() if col in base_df.columns])
+        columns = ", ".join([f"`{col}`" for col in updated_record.keys() if col in base_df.columns and col != 'id'])
+        placeholders = ", ".join([f":{col}" for col in updated_record.keys() if col in base_df.columns and col != 'id'])
         
         insert_query = f"INSERT INTO `test_results` ({columns}) VALUES ({placeholders})"
         
         # Filter params to only include columns that exist in the table
-        valid_params = {k: v for k, v in updated_record.items() if k in base_df.columns}
+        valid_params = {k: v for k, v in updated_record.items() if k in base_df.columns and k != 'id'}
 
         execute_query("llm", insert_query, params=valid_params)
         logger.info(f"Successfully added alternative record with ID: {updated_record['id']}")
@@ -238,11 +238,11 @@ def add_full_alternative_record(row_id, new_data_dict):
                 updated_record[key] = json.dumps(value)
 
         # Build and execute the INSERT query
-        columns = ", ".join([f"`{col}`" for col in updated_record.keys() if col in base_df.columns])
-        placeholders = ", ".join([f":{col}" for col in updated_record.keys() if col in base_df.columns])
+        columns = ", ".join([f"`{col}`" for col in updated_record.keys() if col in base_df.columns and col != 'id'])
+        placeholders = ", ".join([f":{col}" for col in updated_record.keys() if col in base_df.columns and col != 'id'])
         insert_query = f"INSERT INTO `test_results` ({columns}) VALUES ({placeholders})"
         
-        valid_params = {k: v for k, v in updated_record.items() if k in base_df.columns}
+        valid_params = {k: v for k, v in updated_record.items() if k in base_df.columns and k != 'id'}
 
         execute_query("llm", insert_query, params=valid_params)
         logger.info(f"Successfully added full alternative record for group '{row_id}'")
