@@ -18,7 +18,7 @@ def main():
     if 'analysis_summary' not in st.session_state:
         st.session_state.analysis_summary = None
 
-    df = db_utils.fetch_dataframe("llm", "SELECT * FROM test_results LIMIT 5")
+    df = db_utils.fetch_dataframe("llm", "SELECT * FROM test_results")
 
     if df is not None:
         st.success(f"Successfully loaded {len(df)} rows from the database.")
