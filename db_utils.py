@@ -165,11 +165,19 @@ def add_alternative_record(row_id, column_to_update, new_data):
             if isinstance(value, (dict, list)):
                 updated_record[key] = json.dumps(value)
 
+<<<<<<< HEAD
+=======
+        # Build and execute the INSERT query
+>>>>>>> 8e4eef3e9a0b19a7036755ca3b358b1e745ec69a
         columns = ", ".join([f"`{col}`" for col in updated_record.keys() if col in base_df.columns and col != 'id'])
         placeholders = ", ".join([f":{col}" for col in updated_record.keys() if col in base_df.columns and col != 'id'])
         
         insert_query = f"INSERT INTO `test_results` ({columns}) VALUES ({placeholders})"
         
+<<<<<<< HEAD
+=======
+        # Filter params to only include columns that exist in the table
+>>>>>>> 8e4eef3e9a0b19a7036755ca3b358b1e745ec69a
         valid_params = {k: v for k, v in updated_record.items() if k in base_df.columns and k != 'id'}
 
         execute_query("llm", insert_query, params=valid_params)
@@ -214,6 +222,10 @@ def add_full_alternative_record(row_id, new_data_dict):
             if isinstance(value, (dict, list)):
                 updated_record[key] = json.dumps(value)
 
+<<<<<<< HEAD
+=======
+        # Build and execute the INSERT query
+>>>>>>> 8e4eef3e9a0b19a7036755ca3b358b1e745ec69a
         columns = ", ".join([f"`{col}`" for col in updated_record.keys() if col in base_df.columns and col != 'id'])
         placeholders = ", ".join([f":{col}" for col in updated_record.keys() if col in base_df.columns and col != 'id'])
         insert_query = f"INSERT INTO `test_results` ({columns}) VALUES ({placeholders})"
