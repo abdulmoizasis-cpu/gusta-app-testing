@@ -9,6 +9,7 @@ import pandas as pd
 st.set_page_config(layout="wide")
 st.title("Agentic-flow tester")
 st.markdown("Click Run Analysis to start the tester.")
+depth_toggle = st.toggle("Depth", help="Activate to use the agent-based stream for a deeper analysis.")
 
 def main():
     if 'analysis_results' not in st.session_state:
@@ -38,7 +39,7 @@ def main():
             else:
                 status_placeholder.error("❌ Database connection failed. Please refresh the page to try again.")
                 st.stop() 
-    st.success(f"Successfully loaded {len(df)} rows from the database.")
+    st.success(f"Successfully loaded {df['row_id'].nunique()} unique test cases from the database.")
     col1, col2 = st.columns(2)
 
     with col1:
@@ -49,7 +50,7 @@ def main():
             st.session_state.analysis_summary = {}
             st.rerun()
     with col2:
-        if st.button("Prepare ground truth", use_container_width=True):
+        if st.button("Prepare ground truth", use_container_width=True, help="Processes only the rows that have no ground truth data yet."):
             # Filter for rows where all three key columns are null/NaN
             empty_rows_df = df[df['ner_output'] == '']
 
@@ -80,8 +81,7 @@ def main():
         with ThreadPoolExecutor(max_workers=5) as executor:
             # Group by row_id and submit each group for processing
             grouped = df_to_process.groupby('row_id')
-            future_to_group = {executor.submit(process_row_group, row_id, group_df): row_id for row_id, group_df in grouped}
-            
+            future_to_group = {executor.submit(process_row_group, row_id, group_df, depth_toggle): row_id for row_id, group_df in grouped}            
             processed_groups = 0
             total_groups = len(grouped)
             for future in as_completed(future_to_group):
