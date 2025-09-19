@@ -238,7 +238,6 @@ def display_diff(title, old_data, new_data, row_id, column_name, new_raw_data, b
     if title == "Final Output Difference":
         url_differences = compare_urls(old_text, new_text)
         if url_differences:
-            st.info("💡 Key URL Differences")
             for difference in url_differences :
                 st.markdown(difference)
             st.markdown("---") # Add a separator
