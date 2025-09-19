@@ -20,9 +20,7 @@ def main():
     if 'df_to_process' not in st.session_state:
         st.session_state.df_to_process = None
 
-    df = None
-    max_retries = 3
-    status_placeholder = st.empty()
+    df = db_utils.fetch_dataframe("llm", "SELECT * FROM test_results")
 
     for attempt in range(max_retries):
         status_placeholder.info(f"⚙️ Connecting to the database... (Attempt {attempt + 1}/{max_retries})")
