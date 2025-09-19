@@ -6,24 +6,36 @@ import logging
 from rapidfuzz import process, fuzz
 from dotenv import load_dotenv
 import json
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
 from sqlalchemy import text
 import streamlit as st
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
+logging.getLogger('sqlalchemy.engine').setLevel(logging.INFO)
+logging.getLogger('sqlalchemy.pool').setLevel(logging.INFO)
 
 @st.cache_resource
+def init_connection_manager():
+    """
+    Initializes a dictionary that will be cached across reruns 
+    to hold our active database connections (engine and tunnel).
+    """
+    return {}
+
 def get_db_engine(database_name):
     """
-    Creates a reusable database engine and SSH tunnel.
-
-    This ensures the connection is created only once per session.
+    Creates or retrieves a database engine and its SSH tunnel.
+    
+    Checks if the connection is active and re-establishes it if not.
     """
+    _connections = init_connection_manager()
+
+    if database_name in _connections and _connections[database_name]['tunnel'].is_active:
+        return _connections[database_name]['engine']
+
     logger.info(f"Establishing new SSH tunnel and DB engine for '{database_name}'...")
     try:
+        # ... (your existing credential and tunnel creation logic) ...
         db_user = st.secrets["DB_USER"]
         db_password = st.secrets["DB_PASSWORD"]
         ssh_user = st.secrets["SSH_USER"]
@@ -43,8 +55,10 @@ def get_db_engine(database_name):
         logger.info("SSH tunnel established successfully.")
 
         mysql_url = f"mysql+pymysql://{db_user}:{db_password}@127.0.0.1:{tunnel.local_bind_port}/{database_name}"
-        engine = create_engine(mysql_url)
+        engine = create_engine(mysql_url, pool_recycle=10, pool_pre_ping=True)
 
+        _connections[database_name] = {'engine': engine, 'tunnel': tunnel}
+        
         return engine
 
     except Exception as e:
@@ -98,63 +112,6 @@ def execute_query(database_name, query, params=None):
     except Exception as e:
         logger.error(f"Failed to execute query on '{database_name}'. Error: {e}")
         return -1
-    
-def add_alternative_record(row_id, column_to_update, new_data):
-    """
-    Adds a new alternative row to the test_results table.
-
-    Args:
-        row_id (str): The base row ID for the alternative group.
-        column_to_update (str): The database column name to populate with new data.
-        new_data (any): The new raw data from the stream to be inserted.
-
-    Returns:
-        str: The ID of the newly created record, or None on failure.
-    """
-    try:
-        base_record_query = "SELECT * FROM `test_results` WHERE `row_id` = :row_id AND `alt_id` = 0 LIMIT 1"
-        base_df = fetch_dataframe("llm", base_record_query, params={'row_id': row_id})
-
-        if base_df is None or base_df.empty:
-            logger.error(f"Could not find original record for row_id: {row_id}")
-            return None
-
-        new_record = base_df.iloc[0].to_dict()
-
-        max_alt_id_query = "SELECT MAX(alt_id) as max_id FROM `test_results` WHERE `row_id` = :row_id"
-        max_alt_df = fetch_dataframe("llm", max_alt_id_query, params={'row_id': row_id})
-        
-        new_alt_id = 0
-        if max_alt_df is not None and not max_alt_df.empty:
-            max_id = max_alt_df['max_id'].iloc[0]
-            if pd.notna(max_id):
-                new_alt_id = int(max_id) + 1
-
-        new_record['alt_id'] = new_alt_id
-        new_record['id'] = f"{row_id}-{new_alt_id}"
-        updated_record = new_record.copy()
-        updated_record['alt_id'] = new_alt_id
-        updated_record['id'] = f"{row_id}-{new_alt_id}"
-        updated_record[column_to_update] = new_data
-        
-        for key, value in updated_record.items():
-            if isinstance(value, (dict, list)):
-                updated_record[key] = json.dumps(value)
-
-        columns = ", ".join([f"`{col}`" for col in updated_record.keys() if col in base_df.columns and col != 'id'])
-        placeholders = ", ".join([f":{col}" for col in updated_record.keys() if col in base_df.columns and col != 'id'])
-        
-        insert_query = f"INSERT INTO `test_results` ({columns}) VALUES ({placeholders})"
-        
-        valid_params = {k: v for k, v in updated_record.items() if k in base_df.columns and k != 'id'}
-
-        execute_query("llm", insert_query, params=valid_params)
-        logger.info(f"Successfully added alternative record with ID: {updated_record['id']}")
-        return updated_record['id']
-
-    except Exception as e:
-        logger.error(f"Failed to add alternative record for row_id {row_id}. Error: {e}")
-        return None
     
 def add_full_alternative_record(row_id, new_data_dict):
     """
