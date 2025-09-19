@@ -64,12 +64,3 @@ def remove_plural_pairs(list1, list2):
     new_list1 = [w for w in list1 if isinstance(w, str) and get_base(w) not in common_bases]
     new_list2 = [w for w in list2 if isinstance(w, str) and get_base(w) not in common_bases]
     return new_list1, new_list2
-
-
-# list1 = ["cancer", "united kingdom"]
-# list2 = []
-
-# a,b = remove_plural_pairs(list1, list2)
-
-# print(a)
-# print(b)

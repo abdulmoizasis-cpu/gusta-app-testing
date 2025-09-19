@@ -2,6 +2,7 @@ from process_functions import *
 import pandas as pd
 
 def process_row_group(row_id, group_df):
+    latency = 0
     new_ner_intent, new_ner_search_fields, new_chain_field_values, new_ner_date_filter= "", "", "", ""
     new_ner_raw, new_search_raw, new_final_raw , new_ner, new_search, new_final, new_time_stamp = "", "", "", "", "", "", ""
     """
@@ -12,7 +13,7 @@ def process_row_group(row_id, group_df):
     base_row = group_df.iloc[0]
     user_query = base_row.get('user_query', "")
     if not user_query:
-        return []
+        return [], 0
     
     existing_query_df = db_utils.fetch_dataframe(
         "llm",
@@ -28,7 +29,7 @@ def process_row_group(row_id, group_df):
             "failed": False,
             "status": "deleted_duplicate",
             "error": f"Deleted group '{row_id}': Duplicate of a query found in group '{existing_query_df.iloc[0]['row_id']}'"
-        }]
+        }], 0
     
     empty_rows_in_group = group_df[pd.isnull(group_df['ner_output'])]
 
@@ -46,7 +47,7 @@ def process_row_group(row_id, group_df):
                 "failed": False,
                 "status": "deleted_duplicate",
                 "error": f"Deleted {len(ids_to_delete)} empty duplicate row(s) from group '{row_id}'."
-            }]
+            }], 0
     
     api_query = user_query
     query_type = "single"
@@ -70,9 +71,9 @@ def process_row_group(row_id, group_df):
             api_query = "\n".join(formatted_lines)
 
     if query_type == "conversational":
-        new_ner_raw, new_search_raw, new_final_raw, new_ner, new_search, new_final, new_time_stamp, new_ner_intent, new_ner_search_fields, new_ner_leaf_entities, new_ner_date_filter, new_chain_field_values = process_convo_row(api_query, row_id, user_query, None, None)
+        new_ner_raw, new_search_raw, new_final_raw, new_ner, new_search, new_final, new_time_stamp, new_ner_intent, new_ner_search_fields, new_ner_leaf_entities, new_ner_date_filter, new_chain_field_values, latency = process_convo_row(api_query, row_id, user_query, None, None)
     else:
-        new_ner_raw, new_search_raw, new_final_raw, new_ner, new_search, new_final, new_time_stamp, new_ner_intent, new_ner_search_fields, new_ner_leaf_entities, new_ner_date_filter, new_chain_field_values = process_single_row(api_query, row_id, user_query, None, None)
+        new_ner_raw, new_search_raw, new_final_raw, new_ner, new_search, new_final, new_time_stamp, new_ner_intent, new_ner_search_fields, new_ner_leaf_entities, new_ner_date_filter, new_chain_field_values, latency = process_single_row(api_query, row_id, user_query, None, None)
 
     if new_ner_raw and isinstance(new_ner_raw, str) and (new_ner_raw.startswith("Conversational") or new_ner_raw.startswith("Retried")):
         return [{
@@ -84,7 +85,7 @@ def process_row_group(row_id, group_df):
                 "old_ner": parse_csv_text_to_json(base_row.get('ner_output', "")),
                 "new_ner_raw": new_ner_raw
             }
-        }]
+        }], latency
     
     any_match_found = False
     comparison_results = []
@@ -223,7 +224,7 @@ def process_row_group(row_id, group_df):
                     "new_ner_raw": new_ner_raw, "new_search_raw": new_search_raw, "new_final_raw": new_final_raw
                 }
             })
-        return failed_results
+        return failed_results, latency
 
     # Otherwise, a match was found, and the group passes.
-    return []
+    return [], latency

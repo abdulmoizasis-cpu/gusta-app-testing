@@ -6,7 +6,7 @@ def process_convo_row(api_query, index, user_query, old_ner, old_ner_intent) :
         new_ner_raw, new_search_raw, new_final_raw , new_ner, new_search, new_final, new_time_stamp = "", "", "", "", "", "", ""
         new_ner_leaf_entities = ""
 
-        new_ner_raw, new_final_raw, new_search_raw, new_time_stamp = get_api_results_from_conversational_stream(api_query)
+        new_ner_raw, new_final_raw, new_search_raw, new_time_stamp, latency = get_api_results_from_conversational_stream(api_query)
         new_ner = new_ner_raw
         if new_ner and isinstance(new_ner, dict):
             new_ner_intent = new_ner.get("intent", "")
@@ -34,14 +34,14 @@ def process_convo_row(api_query, index, user_query, old_ner, old_ner_intent) :
             
         new_final = new_final_raw
 
-        return new_ner_raw, new_search_raw, new_final_raw , new_ner, new_search, new_final, new_time_stamp, new_ner_intent, new_ner_search_fields, new_ner_leaf_entities, new_ner_date_filter, new_chain_field_values
+        return new_ner_raw, new_search_raw, new_final_raw , new_ner, new_search, new_final, new_time_stamp, new_ner_intent, new_ner_search_fields, new_ner_leaf_entities, new_ner_date_filter, new_chain_field_values, latency
 
 def process_single_row(api_query, index, user_query, old_ner, old_ner_intent) :
     new_ner_intent, new_ner_search_fields, new_chain_field_values, new_ner_date_filter= "", "", "", ""
     new_ner_raw, new_search_raw, new_final_raw , new_ner, new_search, new_final, new_time_stamp = "", "", "", "", "", "", ""
     new_ner_leaf_entities = ""
-        
-    new_ner_raw, new_final_raw, new_search_raw, new_time_stamp = get_api_results_from_stream(api_query)
+
+    new_ner_raw, new_final_raw, new_search_raw, new_time_stamp, latency = get_api_results_from_stream(api_query)
     new_ner = parse_csv_text_to_json(new_ner_raw)
     if new_ner and isinstance(new_ner, dict):
         new_ner_intent = new_ner.get("intent", "")
@@ -70,7 +70,7 @@ def process_single_row(api_query, index, user_query, old_ner, old_ner_intent) :
     else :
         new_final = extract_url(new_final_raw)
 
-    return new_ner_raw, new_search_raw, new_final_raw , new_ner, new_search, new_final, new_time_stamp, new_ner_intent, new_ner_search_fields, new_ner_leaf_entities, new_ner_date_filter, new_chain_field_values
+    return new_ner_raw, new_search_raw, new_final_raw , new_ner, new_search, new_final, new_time_stamp, new_ner_intent, new_ner_search_fields, new_ner_leaf_entities, new_ner_date_filter, new_chain_field_values, latency
 
 
     

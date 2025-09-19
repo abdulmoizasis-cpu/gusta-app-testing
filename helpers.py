@@ -207,7 +207,7 @@ def display_diff(title, old_data, new_data, row_id, column_name, new_raw_data, b
         st.markdown(right_html, unsafe_allow_html=True)
 
 def render_expander_content(result, buttons_enabled=False):
-    """Renders the internal content of a result expander."""
+    """Renders the internal content of a result expander using tabs for clarity."""
     if result.get('error'):
         st.error(f"Could not process row: {result['error']}")
         return
@@ -220,8 +220,7 @@ def render_expander_content(result, buttons_enabled=False):
 
     if buttons_enabled:
         with action_cols[1]:
-            # This is where the "Replace All Cells" button logic goes
-            if st.button("Replace All Cells", key=f"replace_all_{result['id']}"):
+            if st.button("Accept as New Truth", key=f"replace_all_{result['id']}"):
                 new_ner_raw = result['data']['new_ner_raw']
                 new_search_raw = result['data']['new_search_raw']
                 new_final_raw = result['data']['new_final_raw']
@@ -231,10 +230,12 @@ def render_expander_content(result, buttons_enabled=False):
                     'final_output': json.dumps(new_final_raw) if isinstance(new_final_raw, (dict, list)) else new_final_raw
                 }
                 update_database_record(result['id'], updates)
-                st.toast(f"All outputs for row `{result['id']}` replaced.", icon="🔄")
+                st.toast(f"Row `{result['id']}` updated and removed from view.", icon="✅")
+                st.session_state.analysis_results = [r for r in st.session_state.analysis_results if r['id'] != result['id']]
+                st.rerun()
 
         with action_cols[2]:
-            if st.button("Add Alternative Row", key=f"add_full_alt_{result['id']}"):
+            if st.button("Add as alternative", key=f"add_full_alt_{result['id']}"):
                 row_id = result['id'].split('-')[0]
                 new_data = {
                     'ner_output': result['data']['new_ner_raw'],
@@ -242,49 +243,43 @@ def render_expander_content(result, buttons_enabled=False):
                     'final_output': result['data']['new_final_raw']
                 }
                 db_utils.add_full_alternative_record(row_id, new_data)
-                st.toast(f"New alternative row added for group '{row_id}'. Please rerun analysis.", icon="✅")
-        
+                st.toast(f"Group '{row_id}' updated and removed from view.", icon="✅")
+                st.session_state.analysis_results = [r for r in st.session_state.analysis_results if r['id'].split('-')[0] != row_id]
+                st.rerun()
+    
+    # Create tabs for each difference view
+# Dynamically create tabs only for sections with failures
+    tabs_to_show = []
     if result["failures"]["ner"]:
-        col1, col2 = st.columns([3, 1])
-        with col1:
-            st.subheader("NER Output Difference")
-        if buttons_enabled:
-            with col2:
-                if st.button("Add as NER Alternative", key=f"add_alt_ner_{result['id']}", use_container_width=True):
-                    row_id = result['id'].split('-')[0]
-                    new_raw_data = result['data']['new_ner_raw']
-                    db_utils.add_alternative_record(row_id=row_id, column_to_update='ner_output', new_data=new_raw_data)
-                    st.toast(f"New NER alternative added for group '{row_id}'. Please rerun analysis to see changes.", icon="✅")
-        display_diff("NER Output Difference", result["data"]["old_ner"], result["data"]["new_ner"], result['id'], 'ner_output', result['data']['new_ner_raw'])
-        st.divider()
-
-    if not isinstance(result["data"]["new_ner_raw"], str) or not result["data"]["new_ner_raw"].startswith("Retried"):
+        tabs_to_show.append("NER Output")
+    
+    # Check if NER processing was successful before considering other tabs
+    is_ner_ok = not isinstance(result["data"]["new_ner_raw"], str) or not result["data"]["new_ner_raw"].startswith("Retried")
+    if is_ner_ok:
         if result["failures"]["search"]:
-            col1, col2 = st.columns([3, 1])
-            with col1:
-                st.subheader("Search Output Difference")
-            if buttons_enabled:
-                with col2:
-                    if st.button("Add as Search Alternative", key=f"add_alt_search_{result['id']}", use_container_width=True):
-                        row_id = result['id'].split('-')[0]
-                        new_raw_data = result['data']['new_search_raw']
-                        db_utils.add_alternative_record(row_id=row_id, column_to_update='search_list_chain_output', new_data=new_raw_data)
-                        st.toast(f"New Search alternative added for group '{row_id}'. Please rerun analysis to see changes.", icon="✅")
-            display_diff("Search Output Difference", result["data"]["old_search"], result["data"]["new_search"], result['id'], 'search_list_chain_output', result['data']['new_search_raw'])
-            st.divider()
-
+            tabs_to_show.append("Search Output")
         if result["failures"]["final"]:
-            col1, col2 = st.columns([3, 1])
-            with col1:
-                st.subheader("Final Output Difference")
-            if buttons_enabled:
-                with col2:
-                    if st.button("Add as Final Alternative", key=f"add_alt_final_{result['id']}", use_container_width=True):
-                        row_id = result['id'].split('-')[0]
-                        new_raw_data = result['data']['new_final_raw']
-                        db_utils.add_alternative_record(row_id=row_id, column_to_update='final_output', new_data=new_raw_data)
-                        st.toast(f"New Final Output alternative added for group '{row_id}'. Please rerun analysis to see changes.", icon="✅")
-            display_diff("Final Output Difference", result["data"]["old_final"], result["data"]["new_final"], result['id'], 'final_output', result['data']['new_final_raw'])
+            tabs_to_show.append("Final Output")
+
+    if tabs_to_show:
+        # Create the tabs that are needed
+        created_tabs = st.tabs(tabs_to_show)
+        tab_map = dict(zip(tabs_to_show, created_tabs)) # Map titles to tab objects
+
+        # Populate the NER tab if it exists
+        if "NER Output" in tab_map:
+            with tab_map["NER Output"]:
+                display_diff("NER Output Difference", result["data"]["old_ner"], result["data"]["new_ner"], result['id'], 'ner_output', result['data']['new_ner_raw'])
+        
+        # Populate the Search tab if it exists
+        if "Search Output" in tab_map:
+            with tab_map["Search Output"]:
+                display_diff("Search Output Difference", result["data"]["old_search"], result["data"]["new_search"], result['id'], 'search_list_chain_output', result['data']['new_search_raw'])
+
+        # Populate the Final tab if it exists
+        if "Final Output" in tab_map:
+            with tab_map["Final Output"]:
+                display_diff("Final Output Difference", result["data"]["old_final"], result["data"]["new_final"], result['id'], 'final_output', result['data']['new_final_raw'])
 
 def display_result_expander(result, buttons_enabled=False):
     """Creates the expander for a single result and calls the content renderer."""
