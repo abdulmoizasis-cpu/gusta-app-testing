@@ -177,6 +177,48 @@ def update_database_record(record_id, updates):
     
     db_utils.execute_query("llm", query, params)
 
+def compare_urls(old_url, new_url):
+    """
+    Compares two URLs and returns a list of human-readable differences.
+    """
+    # Normalize inputs to handle None or non-string values
+    old_url = str(old_url or '').strip()
+    new_url = str(new_url or '').strip()
+
+    if old_url == new_url:
+        return [] # Return an empty list if there's no difference
+
+    differences = []
+    
+    # Parse the URLs into their components
+    old_parsed = urllib.parse.urlparse(old_url)
+    new_parsed = urllib.parse.urlparse(new_url)
+
+    # Compare path
+    if old_parsed.path != new_parsed.path:
+        differences.append(f"• Path changed from `{old_parsed.path}` to `{new_parsed.path}`.")
+
+    # Parse the query parameters into dictionaries
+    old_params = urllib.parse.parse_qs(old_parsed.fragment)
+    new_params = urllib.parse.parse_qs(new_parsed.fragment)
+
+    # Find changed and removed parameters by checking keys in the old URL
+    for key, old_val_list in old_params.items():
+        old_val = old_val_list[0]
+        if key not in new_params:
+            differences.append(f"• Parameter `{key}` was removed (previously was `{old_val}`).")
+        elif new_params[key][0] != old_val:
+            new_val = new_params[key][0]
+            differences.append(f"• Parameter `{key}` changed from `{old_val}` to `{new_val}`.")
+
+    # Find added parameters by checking keys in the new URL
+    for key, new_val_list in new_params.items():
+        if key not in old_params:
+            new_val = new_val_list[0]
+            differences.append(f"• Parameter `{key}` was added with value `{new_val}`.")
+
+    return differences
+
 def display_diff(title, old_data, new_data, row_id, column_name, new_raw_data, buttons_enabled=False):
     if title == "NER Output Difference":
         parsed_old_data = parse_csv_text_to_json(old_data) if isinstance(old_data, str) else old_data
@@ -192,6 +234,13 @@ def display_diff(title, old_data, new_data, row_id, column_name, new_raw_data, b
     else:
         old_text = json.dumps(old_data, indent=4, sort_keys=True) if isinstance(old_data, (dict, list)) else str(old_data or "")
         new_text = json.dumps(new_data, indent=4, sort_keys=True) if isinstance(new_data, (dict, list)) else str(new_data or "")
+
+    if title == "Final Output Difference":
+        url_differences = compare_urls(old_text, new_text)
+        if url_differences:
+            for difference in url_differences :
+                st.markdown(difference)
+            st.markdown("---") # Add a separator
 
     lines1 = old_text.splitlines()
     lines2 = new_text.splitlines()
@@ -220,7 +269,7 @@ def render_expander_content(result, buttons_enabled=False):
 
     if buttons_enabled:
         with action_cols[1]:
-            if st.button("Accept as New Truth", key=f"replace_all_{result['id']}"):
+            if st.button("Accept as New Truth", key=f"replace_all_{result['id']}", help = "Replaces the original ground truth with this new result."):
                 new_ner_raw = result['data']['new_ner_raw']
                 new_search_raw = result['data']['new_search_raw']
                 new_final_raw = result['data']['new_final_raw']
@@ -235,7 +284,7 @@ def render_expander_content(result, buttons_enabled=False):
                 st.rerun()
 
         with action_cols[2]:
-            if st.button("Add as alternative", key=f"add_full_alt_{result['id']}"):
+            if st.button("Add as alternative", key=f"add_full_alt_{result['id']}", help = "Saves this new result as an additional valid answer without replacing the original."):
                 row_id = result['id'].split('-')[0]
                 new_data = {
                     'ner_output': result['data']['new_ner_raw'],

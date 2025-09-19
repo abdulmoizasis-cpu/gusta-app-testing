@@ -110,3 +110,64 @@ def get_api_results_from_stream(query_text):
     current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     return error_message, error_message, error_message, current_time , 0
+
+def get_api_results_from_agent_stream(query_text):
+    history = []
+    lines = [line.strip() for line in query_text.split('\n') if line.strip()]
+    final_response_data = None
+    
+    inverse_map = create_inverse_field_map(reconstructed_search_mapping)
+    start_time= time.time()
+    max_retries = 5
+    trial = 1
+    last_error = "API call returned no error"
+
+    for i, line in enumerate(lines):
+        payload = {"query": line, "conversation_history": history}
+        for attempt in range(max_retries):
+            trial += 1
+            try:
+                response = requests.post("https://aitest.ebalina.com/agent/invoke", json=payload, timeout=90)
+                response.raise_for_status()
+                data = response.json()
+                if "ner_output" in data:
+                    history.append({"user": line, "ai": data["ner_output"]})
+                if i == len(lines) - 1:
+                    final_response_data = data
+                break 
+            except requests.exceptions.RequestException as e:
+                last_error = e
+                time.sleep(1) 
+        else:
+            error_message = f"Retried {max_retries} times but API call failed for line: '{line}'."
+            if last_error:
+                error_message += f"\n Error: {last_error}"
+            current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            return error_message, error_message, error_message, current_time, 0
+    end_time = time.time()
+    latency = end_time- start_time
+
+    if final_response_data:
+        ner_output_raw = final_response_data.get("ner_output", "")
+        final_output_raw = final_response_data.get("output", {})
+        search_output_raw = ""
+        
+        url_to_process = final_output_raw.get("url")
+        
+        if url_to_process:
+            if not isinstance(ner_output_raw, dict):
+                ner_as_json = convert_yaml_text_to_json(ner_output_raw)
+            else:
+                ner_as_json = ner_output_raw
+            search_list_chain_output = reverse_engineer_search_output(url_to_process, inverse_map)
+            search_output_raw = json.dumps(search_list_chain_output)
+        else:
+            search_output_raw = "{}" 
+
+        current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+        return ner_as_json, url_to_process, search_output_raw, current_time, latency
+    
+    error_message = "Conversational query processed, but no final response was captured."
+    current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    return error_message, error_message, error_message, current_time, latency

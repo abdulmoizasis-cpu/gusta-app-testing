@@ -1,7 +1,7 @@
 from process_functions import *
 import pandas as pd
 
-def process_row_group(row_id, group_df):
+def process_row_group(row_id, group_df, use_agent_stream=False):
     latency = 0
     new_ner_intent, new_ner_search_fields, new_chain_field_values, new_ner_date_filter= "", "", "", ""
     new_ner_raw, new_search_raw, new_final_raw , new_ner, new_search, new_final, new_time_stamp = "", "", "", "", "", "", ""
@@ -70,10 +70,12 @@ def process_row_group(row_id, group_df):
                         formatted_lines.append(clean_line)
             api_query = "\n".join(formatted_lines)
 
+    process_args = (api_query, row_id, user_query, None, None, use_agent_stream)
+
     if query_type == "conversational":
-        new_ner_raw, new_search_raw, new_final_raw, new_ner, new_search, new_final, new_time_stamp, new_ner_intent, new_ner_search_fields, new_ner_leaf_entities, new_ner_date_filter, new_chain_field_values, latency = process_convo_row(api_query, row_id, user_query, None, None)
+        new_ner_raw, new_search_raw, new_final_raw, new_ner, new_search, new_final, new_time_stamp, new_ner_intent, new_ner_search_fields, new_ner_leaf_entities, new_ner_date_filter, new_chain_field_values, latency = process_convo_row(*process_args)
     else:
-        new_ner_raw, new_search_raw, new_final_raw, new_ner, new_search, new_final, new_time_stamp, new_ner_intent, new_ner_search_fields, new_ner_leaf_entities, new_ner_date_filter, new_chain_field_values, latency = process_single_row(api_query, row_id, user_query, None, None)
+        new_ner_raw, new_search_raw, new_final_raw, new_ner, new_search, new_final, new_time_stamp, new_ner_intent, new_ner_search_fields, new_ner_leaf_entities, new_ner_date_filter, new_chain_field_values, latency = process_single_row(*process_args)
 
     if new_ner_raw and isinstance(new_ner_raw, str) and (new_ner_raw.startswith("Conversational") or new_ner_raw.startswith("Retried")):
         return [{
@@ -89,6 +91,7 @@ def process_row_group(row_id, group_df):
     
     any_match_found = False
     comparison_results = []
+    
 
     # --- 2. Iterate through each alternative and compare ---
     for _, alt_row in group_df.iterrows():
@@ -125,22 +128,31 @@ def process_row_group(row_id, group_df):
             old_final = ""
 
         # --- Perform Comparison Logic ---
-        ner_flag, search_flag, final_flag = False, False, False
+        ner_flag, search_flag, final_flag, date_flag = False, False, False, False
 
         ref_old_ner_search_fields, ref_new_ner_search_fields = remove_plural_pairs(old_ner_search_fields, new_ner_search_fields) if (bool(old_ner_search_fields) and bool(new_ner_search_fields)) else (old_ner_search_fields, new_ner_search_fields)
         ref_old_ner_leaf_entities, ref_new_ner_leaf_entities = remove_plural_pairs(old_ner_leaf_entities, new_ner_leaf_entities) if (bool(old_ner_leaf_entities) and bool(new_ner_leaf_entities)) else (old_ner_leaf_entities, new_ner_leaf_entities)
         ref_old_chain_field_values, ref_new_chain_field_values = remove_plural_pairs(old_chain_field_values, new_chain_field_values) if (bool(old_chain_field_values) and bool(new_chain_field_values)) else (old_chain_field_values, new_chain_field_values)
+
+        date_flag = (bool(old_ner_date_filter) != bool(new_ner_date_filter))
 
         if (new_ner_intent != old_ner_intent) or (bool(old_ner_date_filter) != bool(new_ner_date_filter)) or (calculate_similarity(ref_old_ner_search_fields, ref_new_ner_search_fields)) or calculate_similarity(ref_old_ner_leaf_entities, ref_new_ner_leaf_entities):
             ner_flag = True
         
         search_flag = bool(set(ref_old_chain_field_values) ^ set(ref_new_chain_field_values)) or (bool(old_chain_field_values) != bool(new_chain_field_values))
         
-        final_flag = (old_final != new_final)
+        old_final_norm = str(old_final or '').strip()
+        new_final_norm = str(new_final or '').strip()
 
-        is_failure = ner_flag or search_flag
+        final_flag = (old_final_norm != new_final_norm)
 
-        if (is_failure) and not final_flag:
+        if final_flag and not ner_flag and not search_flag:
+            if old_ner_date_filter and new_ner_date_filter:
+                final_flag = False
+
+        is_failure = ner_flag or search_flag or final_flag
+
+        if not final_flag:
             is_failure = False 
             ner_flag = False
             search_flag = False
@@ -166,19 +178,26 @@ def process_row_group(row_id, group_df):
         print(f"New Chain Field Values: {new_chain_field_values}")
         print(f"Search flag :{search_flag}")
         print(f"----------------------------------------")
-        print(f"old_ner_intent: {old_ner_intent}")
+        print(f"old_ner_intent: {old_ner_intent}\n")
         print(f"new_ner_intent: {new_ner_intent}\n")
-        print(f"old_ner_date_filter: {old_ner_date_filter}")
+
+        print(f"old_ner_date_filter: {old_ner_date_filter}\n")
         print(f"new_ner_date_filter: {new_ner_date_filter}\n")
-        print(f"old_ner_search_fields: {old_ner_search_fields}")
+        print(f"Date flag : {date_flag}\n")
+
+        print(f"old_ner_search_fields: {old_ner_search_fields}\n")
         print(f"new_ner_search_fields: {new_ner_search_fields}\n")
         # print(f"new_ner_search_fields_type:{bool(new_ner_search_fields)}")
-        print(f"ref_old_ner_search_fields: {ref_old_ner_search_fields}")
+        print(f"ref_old_ner_search_fields: {ref_old_ner_search_fields}\n")
         print(f"ref_new_ner_search_fields: {ref_new_ner_search_fields}\n")
-        print(f"old_ner_leaf_entities: {ref_old_ner_leaf_entities}")
+        print(f"old_ner_leaf_entities: {ref_old_ner_leaf_entities}\n")
         print(f"new_ner_leaf_entities: {ref_new_ner_leaf_entities}\n")
         print(f"Ner flag :{ner_flag}\n")
-        print(f"Final Flag : {final_flag}")
+        print(f"old_final: {old_final}\n")
+        print(f"new_final: {new_final}\n")
+        print(f"Final Flag : {final_flag}\n")
+        # print(f"Ner flag :{ner_flag}\n")
+        # print(f"Search flag :{search_flag}")
 
 
         # print(f"similarity between refs : {(calculate_similarity(ref_old_ner_search_fields, ref_new_ner_search_fields))}")
@@ -211,7 +230,6 @@ def process_row_group(row_id, group_df):
                 "id": result['id'],
                 "user_query": user_query,
                 "failed": result['ner_flag'] or result['search_flag'] or result['final_flag'],
-                # Use the specific flags that were recorded during the comparison
                 "failures": {
                     "ner": result['ner_flag'],
                     "search": result['search_flag'],
