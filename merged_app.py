@@ -40,34 +40,36 @@ def main():
                 status_placeholder.error("❌ Database connection failed. Please refresh the page to try again.")
                 st.stop() 
     st.success(f"Successfully loaded {df['row_id'].nunique()} unique test cases from the database.")
-    col1, col2 = st.columns(2)
 
-    with col1:
-        if st.button("Run Analysis", use_container_width=True):
-            st.session_state.df_to_process = df
-            st.session_state.analysis_running = True
-            st.session_state.analysis_results = []
-            st.session_state.analysis_summary = {}
-            st.rerun()
-    with col2:
-        if st.button("Prepare ground truth", use_container_width=True, help="Processes only the rows that have no ground truth data yet."):
-            # Filter for rows where all three key columns are null/NaN
-            empty_rows_df = df[df['ner_output'] == '']
-
-            if empty_rows_df.empty:
-                st.warning("✅ No empty rows to fill. Your ground truth is ready!")
-            else:
-                st.info(f"Found {len(empty_rows_df)} empty rows to process.")
-                st.session_state.df_to_process = empty_rows_df
-                st.session_state.analysis_running = True
-                st.session_state.analysis_results = []
-                st.session_state.analysis_summary = {}
-                st.rerun()
+    if st.button("Run Analysis", use_container_width=True):
+        st.session_state.df_to_process = df
+        st.session_state.analysis_running = True
+        st.session_state.analysis_results = []
+        st.session_state.analysis_summary = {}
+        st.rerun()
         
     if st.session_state.analysis_running:
         st.header("Analysis in Progress...")
         analysis_start_time = time.time()
         df_to_process = st.session_state.df_to_process
+
+        empty_mask = pd.isnull(df_to_process['ner_output']) | (df_to_process['ner_output'].astype(str).str.strip() == "") | (df_to_process['ner_output'].astype(str).str.strip() == "{}")
+        df_empty = df_to_process[empty_mask]
+
+        if not df_empty.empty:
+            with st.spinner("Filling empty rows..."):
+                status_text = st.empty()
+                grouped_empty = df_empty.groupby('row_id')
+                total_empty_groups = len(grouped_empty)
+
+                for i, (row_id, group_df) in enumerate(grouped_empty):
+                    status_text.text(f"Processing empty row_id: {row_id} ({i + 1}/{total_empty_groups})")
+                    fill_empty_row_group(group_df)
+
+                st.session_state.df_to_process = db_utils.fetch_dataframe("llm", "SELECT * FROM test_results")
+                df_to_process = st.session_state.df_to_process
+                status_text.empty()
+
         progress_bar = st.progress(0, text="Starting analysis...")
         summary_placeholder = st.empty()
         results_container = st.container()

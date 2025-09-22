@@ -13,7 +13,7 @@ def get_api_results_from_conversational_stream(query_text):
     last_error = "API call returned no error"
 
     for i, line in enumerate(lines):
-        payload = {"query": line, "conversation_history": history}
+        payload = {"query": line, "conversation_history": history, "trace": "false"}
         for attempt in range(max_retries):
             trial += 1
             try:
@@ -123,7 +123,7 @@ def get_api_results_from_agent_stream(query_text):
     last_error = "API call returned no error"
 
     for i, line in enumerate(lines):
-        payload = {"query": line, "conversation_history": history}
+        payload = {"query": line, "conversation_history": history, "trace": "false"}
         for attempt in range(max_retries):
             trial += 1
             try:

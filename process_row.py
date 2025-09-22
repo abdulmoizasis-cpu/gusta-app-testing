@@ -15,6 +15,23 @@ def process_row_group(row_id, group_df, use_agent_stream=False):
     if not user_query:
         return [], 0
     
+    if use_agent_stream:
+        query_type = "single"
+        if '\n' in user_query.strip():
+            query_type = "conversational"
+
+        if query_type == "conversational":
+            return [], 0 
+
+        old_ner_raw = base_row.get('ner_output', "")
+        old_ner = parse_csv_text_to_json(old_ner_raw) 
+        old_ner_intent = ""
+        if old_ner and isinstance(old_ner, dict):
+            old_ner_intent = old_ner.get("intent", "")
+
+        if old_ner_intent != ["search_list"]:
+            return [], 0 # Skip processing if intent is not search_list
+    
     existing_query_df = db_utils.fetch_dataframe(
         "llm",
         "SELECT row_id FROM `test_results` WHERE `user_query` = :user_query AND `row_id` != :current_row_id LIMIT 1",
@@ -84,9 +101,11 @@ def process_row_group(row_id, group_df, use_agent_stream=False):
             "failed": True,
             "failures": {"ner": True, "search": False, "final": False},
             "data": {
-                "old_ner": parse_csv_text_to_json(base_row.get('ner_output', "")),
-                "new_ner_raw": new_ner_raw
-            }
+                "old_ner": parse_csv_text_to_json(base_row.get('ner_output', "")), "new_ner": new_ner,
+                "old_search": convert_yaml_text_to_json(base_row.get('search_list_chain_output', "")), "new_search": new_search,
+                "old_final": extract_url(base_row.get('final_output', "")), "new_final": new_final,
+                "new_ner_raw": new_ner_raw, "new_search_raw": new_search_raw, "new_final_raw": new_final_raw
+                }
         }], latency
     
     any_match_found = False
