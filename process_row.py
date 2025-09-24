@@ -16,13 +16,6 @@ def process_row_group(row_id, group_df, use_agent_stream=False):
         return [], 0
     
     if use_agent_stream:
-        query_type = "single"
-        if '\n' in user_query.strip():
-            query_type = "conversational"
-
-        if query_type == "conversational":
-            return [], 0 
-
         old_ner_raw = base_row.get('ner_output', "")
         old_ner = parse_csv_text_to_json(old_ner_raw) 
         old_ner_intent = ""
@@ -30,7 +23,7 @@ def process_row_group(row_id, group_df, use_agent_stream=False):
             old_ner_intent = old_ner.get("intent", "")
 
         if old_ner_intent != ["search_list"]:
-            return [], 0 # Skip processing if intent is not search_list
+            return [], 0 
     
     existing_query_df = db_utils.fetch_dataframe(
         "llm",
