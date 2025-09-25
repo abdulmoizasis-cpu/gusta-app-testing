@@ -1,23 +1,29 @@
 from helpers import *
 import json, datetime, time, requests
 
-def get_api_results_from_conversational_stream(query_text):
+def get_api_results_from_conversational_stream(query_text,stop_event=None):
     history = []
     lines = [line.strip() for line in query_text.split('\n') if line.strip()]
     final_response_data = None
     
     inverse_map = create_inverse_field_map(reconstructed_search_mapping)
     start_time= time.time()
-    max_retries = 5
-    trial = 1
+    max_retries = 1
     last_error = "API call returned no error"
 
+    if stop_event and stop_event.is_set():
+        return "Process stopped externally before starting.", "","", datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), 0
+    
     for i, line in enumerate(lines):
+        if stop_event and stop_event.is_set():
+            error_message = f"Process stopped externally after {i} steps."
+            return error_message, error_message, error_message, datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), 0
+        
         payload = {"query": line, "conversation_history": history, "trace": "false"}
         for attempt in range(max_retries):
-            trial += 1
             try:
-                response = requests.post("https://aitest.ebalina.com/invoke", json=payload, timeout=90)
+                print(f"convo attempt : {attempt+1} for line : {line}")
+                response = requests.post("https://aitest.ebalina.com/invoke", json=payload, timeout=50)
                 response.raise_for_status()
                 data = response.json()   
                 if "ner_output" in data:
@@ -41,6 +47,7 @@ def get_api_results_from_conversational_stream(query_text):
         ner_output_raw = final_response_data.get("ner_output", "")
         final_output_raw = final_response_data.get("output", {})
         search_output_raw = ""
+        ner_as_json = ""
         
         url_to_process = final_output_raw.get("url")
         
@@ -60,16 +67,17 @@ def get_api_results_from_conversational_stream(query_text):
     return error_message, error_message, error_message, current_time, latency
 
 
-def get_api_results_from_stream(query_text):
-    max_retries = 5
-    trial = 1
+def get_api_results_from_stream(query_text, stop_event=None):
+    max_retries = 1
     last_error = "API call returned no error"
     payload = {"query": query_text, "k": 5}
     for attempt in range(max_retries) : 
-        trial += 1
+        print(f"attempt : {attempt+1}, for single query : {query_text}")
         start_time = time.time()
         try:
-            response = requests.post("https://aitest.ebalina.com/stream", json=payload, stream=True, timeout=90)
+            if stop_event and stop_event.is_set():
+                return "Process stopped externally before starting.", "","", datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), 0
+            response = requests.post("https://aitest.ebalina.com/stream", json=payload, stream=True, timeout=50)
             response.raise_for_status()
 
             full_response_data = []
@@ -111,23 +119,29 @@ def get_api_results_from_stream(query_text):
 
     return error_message, error_message, error_message, current_time , 0
 
-def get_api_results_from_agent_stream(query_text):
+def get_api_results_from_agent_stream(query_text, stop_event=None):
     history = []
     lines = [line.strip() for line in query_text.split('\n') if line.strip()]
     final_response_data = None
     
     inverse_map = create_inverse_field_map(reconstructed_search_mapping)
     start_time= time.time()
-    max_retries = 5
-    trial = 1
+    max_retries = 1
     last_error = "API call returned no error"
 
+    if stop_event and stop_event.is_set():
+        return "Process stopped externally before starting.", "","", datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), 0
+
     for i, line in enumerate(lines):
+        if stop_event and stop_event.is_set():
+            error_message = f"Process stopped externally after {i} steps."
+            return error_message, error_message, error_message, datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), 0
+        
         payload = {"query": line, "conversation_history": history, "trace": "false"}
         for attempt in range(max_retries):
-            trial += 1
+            print(f"agent attempt : {attempt+1} for line : {line}")
             try:
-                response = requests.post("https://aitest.ebalina.com/agent/invoke", json=payload, timeout=90)
+                response = requests.post("https://aitest.ebalina.com/agent/invoke", json=payload, timeout=50)
                 response.raise_for_status()
                 data = response.json()
                 if "ner_output" in data:
@@ -151,6 +165,7 @@ def get_api_results_from_agent_stream(query_text):
         ner_output_raw = final_response_data.get("ner_output", "")
         final_output_raw = final_response_data.get("output", {})
         search_output_raw = ""
+        ner_as_json = ""
         
         url_to_process = final_output_raw.get("url")
         

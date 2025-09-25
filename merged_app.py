@@ -3,6 +3,7 @@ from streams import *
 from process_functions import *
 from process_row import *
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import threading
 import streamlit_nested_layout
 import pandas as pd
 
@@ -49,6 +50,8 @@ def main():
         st.rerun()
         
     if st.session_state.analysis_running:
+        if depth_toggle:
+            st.warning("⚠️ Depth mode is ON. This will use the agent-based stream for a deeper analysis on queries with search_list intent, which may take longer.")
         st.header("Analysis in Progress...")
         analysis_start_time = time.time()
         df_to_process = st.session_state.df_to_process
@@ -79,44 +82,59 @@ def main():
         total_rows = len(df_to_process)
         live_results = []
         latencies = []
+        stop_event = threading.Event()
         
         with ThreadPoolExecutor(max_workers=5) as executor:
-            # Group by row_id and submit each group for processing
             grouped = df_to_process.groupby('row_id')
-            future_to_group = {executor.submit(process_row_group, row_id, group_df, depth_toggle): row_id for row_id, group_df in grouped}            
+            future_to_group = {executor.submit(process_row_group, row_id, group_df, depth_toggle, stop_event): row_id for row_id, group_df in grouped}            
             processed_groups = 0
             total_groups = len(grouped)
-            for future in as_completed(future_to_group):
-                row_id = future_to_group[future]
-                processed_groups += 1
-                group_results, latency = future.result() # This will be a list of failed results for the group
+            try :
+                try :
+                    for future in as_completed(future_to_group):
+                        row_id = future_to_group[future]
+                        processed_groups += 1
+                        group_results, latency = future.result() # This will be a list of failed results for the group
 
-                if latency > 0:
-                    latencies.append((row_id,latency))
+                        if latency > 0:
+                            latencies.append((row_id,latency))
 
-                if group_results:
-                    # Extend the main results list with the list of failures from the group
-                    live_results.extend(group_results)
-                    failed_count += len(group_results)
+                        if group_results:
+                            # Extend the main results list with the list of failures from the group
+                            live_results.extend(group_results)
+                            failed_count += len(group_results)
 
-                with results_container:
-                    if group_results:
-                        # Case 1: The group failed, but only has one alternative. Display it directly.
-                        if len(group_results) == 1:
-                            display_result_expander(group_results[0], buttons_enabled=False)
-                        # Case 2: The group failed and has multiple alternatives. Create a nested view.
-                        else:
-                            row_id = group_results[0]['id'].split('-')[0]
-                            with st.expander(f"🚨 Row ID: {row_id}"):
-                                for result in group_results:
-                                    # Create a nested expander for each specific ID
-                                    with st.expander(f"ID: {result['id']}"):
-                                        # Render the content directly inside the nested expander
-                                        render_expander_content(result, buttons_enabled=False)
+                        with results_container:
+                            if group_results:
+                                # Case 1: The group failed, but only has one alternative. Display it directly.
+                                if len(group_results) == 1:
+                                    display_result_expander(group_results[0], buttons_enabled=False)
+                                # Case 2: The group failed and has multiple alternatives. Create a nested view.
+                                else:
+                                    row_id = group_results[0]['id'].split('-')[0]
+                                    with st.expander(f"🚨 Row ID: {row_id}"):
+                                        for result in group_results:
+                                            # Create a nested expander for each specific ID
+                                            with st.expander(f"ID: {result['id']}"):
+                                                # Render the content directly inside the nested expander
+                                                render_expander_content(result, buttons_enabled=False)
 
-                processed_rows_count = sum(len(g) for _, g in list(grouped)[:processed_groups])
-                summary_placeholder.info(f"Processed: {processed_rows_count}/{total_rows} rows ({processed_groups}/{total_groups} groups) | Failures: {failed_count}")
-                progress_bar.progress(processed_groups / total_groups, text=f"Processing group {processed_groups}/{total_groups}")
+                        processed_rows_count = sum(len(g) for _, g in list(grouped)[:processed_groups])
+                        summary_placeholder.info(f"Processed: {processed_rows_count}/{total_rows} rows ({processed_groups}/{total_groups} groups) | Failures: {failed_count}")
+                        progress_bar.progress(processed_groups / total_groups, text=f"Processing group {processed_groups}/{total_groups}")
+                except Exception as e:
+                    st.error(f"❌ An error occurred during analysis in group '{row_id}':")
+                    st.exception(e) 
+                    stop_event.set()  # Signal all threads to stop
+                    st.session_state.analysis_running = False
+                    st.stop()
+            finally:
+                # This code will ALWAYS run, even if the user clicks "Stop"
+                print("Stop signal sent to all threads.") # For debugging
+                stop_event.set()
+
+            
+
 
         total_runtime = time.time() - analysis_start_time
         avg_latency = sum(lat for _, lat in latencies) / len(latencies) if latencies else 0

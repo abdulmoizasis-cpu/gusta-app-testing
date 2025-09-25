@@ -1,7 +1,11 @@
 from process_functions import *
 import pandas as pd
 
-def process_row_group(row_id, group_df, use_agent_stream=False):
+def process_row_group(row_id, group_df, use_agent_stream=False, stop_event=None):
+
+    if stop_event and stop_event.is_set():
+        return [], 0
+
     latency = 0
     new_ner_intent, new_ner_search_fields, new_chain_field_values, new_ner_date_filter= "", "", "", ""
     new_ner_raw, new_search_raw, new_final_raw , new_ner, new_search, new_final, new_time_stamp = "", "", "", "", "", "", ""
@@ -16,13 +20,6 @@ def process_row_group(row_id, group_df, use_agent_stream=False):
         return [], 0
     
     if use_agent_stream:
-        query_type = "single"
-        if '\n' in user_query.strip():
-            query_type = "conversational"
-
-        if query_type == "conversational":
-            return [], 0 
-
         old_ner_raw = base_row.get('ner_output', "")
         old_ner = parse_csv_text_to_json(old_ner_raw) 
         old_ner_intent = ""
@@ -30,7 +27,7 @@ def process_row_group(row_id, group_df, use_agent_stream=False):
             old_ner_intent = old_ner.get("intent", "")
 
         if old_ner_intent != ["search_list"]:
-            return [], 0 # Skip processing if intent is not search_list
+            return [], 0 
     
     existing_query_df = db_utils.fetch_dataframe(
         "llm",
@@ -87,12 +84,10 @@ def process_row_group(row_id, group_df, use_agent_stream=False):
                         formatted_lines.append(clean_line)
             api_query = "\n".join(formatted_lines)
 
-    process_args = (api_query, row_id, user_query, None, None, use_agent_stream)
-
     if query_type == "conversational":
-        new_ner_raw, new_search_raw, new_final_raw, new_ner, new_search, new_final, new_time_stamp, new_ner_intent, new_ner_search_fields, new_ner_leaf_entities, new_ner_date_filter, new_chain_field_values, latency = process_convo_row(*process_args)
+        new_ner_raw, new_search_raw, new_final_raw, new_ner, new_search, new_final, new_time_stamp, new_ner_intent, new_ner_search_fields, new_ner_leaf_entities, new_ner_date_filter, new_chain_field_values, latency = process_convo_row(api_query, row_id, user_query, None, None, use_agent_stream, stop_event)
     else:
-        new_ner_raw, new_search_raw, new_final_raw, new_ner, new_search, new_final, new_time_stamp, new_ner_intent, new_ner_search_fields, new_ner_leaf_entities, new_ner_date_filter, new_chain_field_values, latency = process_single_row(*process_args)
+        new_ner_raw, new_search_raw, new_final_raw, new_ner, new_search, new_final, new_time_stamp, new_ner_intent, new_ner_search_fields, new_ner_leaf_entities, new_ner_date_filter, new_chain_field_values, latency = process_single_row(api_query, row_id, user_query, None, None, use_agent_stream, stop_event)
 
     if new_ner_raw and isinstance(new_ner_raw, str) and (new_ner_raw.startswith("Conversational") or new_ner_raw.startswith("Retried")):
         return [{
@@ -107,6 +102,9 @@ def process_row_group(row_id, group_df, use_agent_stream=False):
                 "new_ner_raw": new_ner_raw, "new_search_raw": new_search_raw, "new_final_raw": new_final_raw
                 }
         }], latency
+    
+    if new_ner_raw and isinstance(new_ner_raw, str) and "Process stopped externally" in new_ner_raw:
+        return [], 0 
     
     any_match_found = False
     comparison_results = []
