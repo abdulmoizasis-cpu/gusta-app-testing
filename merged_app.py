@@ -52,8 +52,6 @@ def main():
     if st.session_state.analysis_running:
         if depth_toggle:
             st.warning("⚠️ Depth mode is ON. This will use the agent-based stream for a deeper analysis on queries with search_list intent, which may take longer.")
-        if depth_toggle:
-            st.warning("⚠️ Depth mode is ON. This will use the agent-based stream for a deeper analysis on queries with search_list intent, which may take longer.")
         st.header("Analysis in Progress...")
         analysis_start_time = time.time()
         df_to_process = st.session_state.df_to_process
