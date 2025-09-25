@@ -1,175 +1,201 @@
 from helpers import *
-import json, datetime, time, requests
+from streams import *
+from process_functions import *
+from process_row import *
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import streamlit_nested_layout
+import pandas as pd
 
-def get_api_results_from_conversational_stream(query_text):
-    history = []
-    lines = [line.strip() for line in query_text.split('\n') if line.strip()]
-    final_response_data = None
-    
-    inverse_map = create_inverse_field_map(reconstructed_search_mapping)
-    start_time= time.time()
-    max_retries = 5
-    trial = 1
-    last_error = "API call returned no error"
+st.set_page_config(layout="wide")
+st.title("Agentic-flow tester")
+st.markdown("Click Run Analysis to start the tester.")
+depth_toggle = st.toggle("Depth", help="Activate to use the agent-based stream for a deeper analysis.")
 
-    for i, line in enumerate(lines):
-        payload = {"query": line, "conversation_history": history, "trace": "false"}
-        for attempt in range(max_retries):
-            trial += 1
-            try:
-                response = requests.post("https://aitest.ebalina.com/invoke", json=payload, timeout=90)
-                response.raise_for_status()
-                data = response.json()   
-                if "ner_output" in data:
-                    history.append({"user": line, "ai": data["ner_output"]})
-                if i == len(lines) - 1:
-                    final_response_data = data
-                break 
-            except requests.exceptions.RequestException as e:
-                last_error = e
-                time.sleep(1) 
+def main():
+    if 'analysis_results' not in st.session_state:
+        st.session_state.analysis_results = None
+    if 'analysis_running' not in st.session_state:
+        st.session_state.analysis_running = False
+    if 'analysis_summary' not in st.session_state:
+        st.session_state.analysis_summary = None
+    if 'df_to_process' not in st.session_state:
+        st.session_state.df_to_process = None
+
+    df = None
+    max_retries = 3
+    status_placeholder = st.empty()
+
+    for attempt in range(max_retries):
+        status_placeholder.info(f"⚙️ Connecting to the database... (Attempt {attempt + 1}/{max_retries})")
+        df = db_utils.fetch_dataframe("llm", "SELECT * FROM test_results")
+        if df is not None:
+            status_placeholder.success("✅ Database connected successfully!")
+            time.sleep(1.5) 
+            status_placeholder.empty() 
+            break 
         else:
-            error_message = f"Retried {max_retries} times but API call failed for line: '{line}'."
-            if last_error:
-                error_message += f"\n Error: {last_error}"
-            current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            return error_message, error_message, error_message, current_time, 0
-    end_time = time.time()
-    latency = end_time- start_time
-
-    if final_response_data:
-        ner_output_raw = final_response_data.get("ner_output", "")
-        final_output_raw = final_response_data.get("output", {})
-        search_output_raw = ""
-        ner_as_json = ""
-        
-        url_to_process = final_output_raw.get("url")
-        
-        if url_to_process:
-            ner_as_json = convert_yaml_text_to_json(ner_output_raw)
-            search_list_chain_output = reverse_engineer_search_output(url_to_process, inverse_map)
-            search_output_raw = json.dumps(search_list_chain_output)
-        else:
-            search_output_raw = "{}" 
-
-        current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        
-        return ner_as_json, url_to_process, search_output_raw, current_time, latency
-    
-    error_message = "Conversational query processed, but no final response was captured."
-    current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    return error_message, error_message, error_message, current_time, latency
-
-
-def get_api_results_from_stream(query_text):
-    max_retries = 5
-    trial = 1
-    last_error = "API call returned no error"
-    payload = {"query": query_text, "k": 5}
-    for attempt in range(max_retries) : 
-        trial += 1
-        start_time = time.time()
-        try:
-            response = requests.post("https://aitest.ebalina.com/stream", json=payload, stream=True, timeout=90)
-            response.raise_for_status()
-
-            full_response_data = []
-            for line in response.iter_lines():
-                if line:
-                    json_line = line.decode('utf-8').replace('data: ', '').strip()
-                    if json_line:
-                        try:
-                            full_response_data.append(json.loads(json_line))
-                        except json.JSONDecodeError:
-                            pass
-            
-            ner_output, final_output, search_list_chain_output = None, None, None
-
-            if full_response_data : 
-                for item in full_response_data:
-                    if item.get("log_title") == "NER Succeded":
-                        content = item.get("content")
-                        ner_output = json.dumps(content) if isinstance(content, (dict, list)) else str(content)
-                    if item.get("log_title") == "Search List Result":
-                        content = item.get("content")
-                        search_list_chain_output = json.dumps(content) if isinstance(content, (dict, list)) else str(content)
-                if ner_output == None :
-                    continue
-                end_time = time.time()
-                latency = end_time - start_time
-                time_stamp = full_response_data[0].get("timestamp")
-                time_stamp = datetime.datetime.fromtimestamp(time_stamp).strftime("%Y-%m-%d %H:%M:%S")
-                final_output = full_response_data[-1].get("output", "")
-                return ner_output, final_output, search_list_chain_output, time_stamp, latency
-        except requests.exceptions.RequestException as e:
-            last_error = e
-            time.sleep(1)
-
-    error_message = "Retried 5 times but api call returned no results"
-    if last_error:
-        error_message += f"\n Error : {last_error}"
-    current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-    return error_message, error_message, error_message, current_time , 0
-
-def get_api_results_from_agent_stream(query_text):
-    history = []
-    lines = [line.strip() for line in query_text.split('\n') if line.strip()]
-    final_response_data = None
-    
-    inverse_map = create_inverse_field_map(reconstructed_search_mapping)
-    start_time= time.time()
-    max_retries = 5
-    trial = 1
-    last_error = "API call returned no error"
-
-    for i, line in enumerate(lines):
-        payload = {"query": line, "conversation_history": history, "trace": "false"}
-        for attempt in range(max_retries):
-            trial += 1
-            try:
-                response = requests.post("https://aitest.ebalina.com/agent/invoke", json=payload, timeout=90)
-                response.raise_for_status()
-                data = response.json()
-                if "ner_output" in data:
-                    history.append({"user": line, "ai": data["ner_output"]})
-                if i == len(lines) - 1:
-                    final_response_data = data
-                break 
-            except requests.exceptions.RequestException as e:
-                last_error = e
-                time.sleep(1) 
-        else:
-            error_message = f"Retried {max_retries} times but API call failed for line: '{line}'."
-            if last_error:
-                error_message += f"\n Error: {last_error}"
-            current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            return error_message, error_message, error_message, current_time, 0
-    end_time = time.time()
-    latency = end_time- start_time
-
-    if final_response_data:
-        ner_output_raw = final_response_data.get("ner_output", "")
-        final_output_raw = final_response_data.get("output", {})
-        search_output_raw = ""
-        ner_as_json = ""
-        
-        url_to_process = final_output_raw.get("url")
-        
-        if url_to_process:
-            if not isinstance(ner_output_raw, dict):
-                ner_as_json = convert_yaml_text_to_json(ner_output_raw)
+            if attempt < max_retries - 1:
+                time.sleep(2) 
             else:
-                ner_as_json = ner_output_raw
-            search_list_chain_output = reverse_engineer_search_output(url_to_process, inverse_map)
-            search_output_raw = json.dumps(search_list_chain_output)
-        else:
-            search_output_raw = "{}" 
+                status_placeholder.error("❌ Database connection failed. Please refresh the page to try again.")
+                st.stop() 
+    st.success(f"Successfully loaded {df['row_id'].nunique()} unique test cases from the database.")
 
-        current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    if st.button("Run Analysis", use_container_width=True):
+        st.session_state.df_to_process = df
+        st.session_state.analysis_running = True
+        st.session_state.analysis_results = []
+        st.session_state.analysis_summary = {}
+        st.rerun()
         
-        return ner_as_json, url_to_process, search_output_raw, current_time, latency
-    
-    error_message = "Conversational query processed, but no final response was captured."
-    current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    return error_message, error_message, error_message, current_time, latency
+    if st.session_state.analysis_running:
+        if depth_toggle:
+            st.warning("⚠️ Depth mode is ON. This will use the agent-based stream for a deeper analysis on queries with search_list intent, which may take longer.")
+        st.header("Analysis in Progress...")
+        analysis_start_time = time.time()
+        df_to_process = st.session_state.df_to_process
+
+        empty_mask = pd.isnull(df_to_process['ner_output']) | (df_to_process['ner_output'].astype(str).str.strip() == "") | (df_to_process['ner_output'].astype(str).str.strip() == "{}")
+        df_empty = df_to_process[empty_mask]
+
+        if not df_empty.empty:
+            with st.spinner("Filling empty rows..."):
+                status_text = st.empty()
+                grouped_empty = df_empty.groupby('row_id')
+                total_empty_groups = len(grouped_empty)
+
+                for i, (row_id, group_df) in enumerate(grouped_empty):
+                    status_text.text(f"Processing empty row_id: {row_id} ({i + 1}/{total_empty_groups})")
+                    fill_empty_row_group(group_df)
+
+                st.session_state.df_to_process = db_utils.fetch_dataframe("llm", "SELECT * FROM test_results")
+                df_to_process = st.session_state.df_to_process
+                status_text.empty()
+
+        progress_bar = st.progress(0, text="Starting analysis...")
+        summary_placeholder = st.empty()
+        results_container = st.container()
+        
+        failed_count = 0
+        deleted_count = 0
+        total_rows = len(df_to_process)
+        live_results = []
+        latencies = []
+        
+        with ThreadPoolExecutor(max_workers=5) as executor:
+            # Group by row_id and submit each group for processing
+            grouped = df_to_process.groupby('row_id')
+            future_to_group = {executor.submit(process_row_group, row_id, group_df, depth_toggle): row_id for row_id, group_df in grouped}            
+            processed_groups = 0
+            total_groups = len(grouped)
+            try :
+                for future in as_completed(future_to_group):
+                    row_id = future_to_group[future]
+                    processed_groups += 1
+                    group_results, latency = future.result() # This will be a list of failed results for the group
+
+                    if latency > 0:
+                        latencies.append((row_id,latency))
+
+                    if group_results:
+                        # Extend the main results list with the list of failures from the group
+                        live_results.extend(group_results)
+                        failed_count += len(group_results)
+
+                    with results_container:
+                        if group_results:
+                            # Case 1: The group failed, but only has one alternative. Display it directly.
+                            if len(group_results) == 1:
+                                display_result_expander(group_results[0], buttons_enabled=False)
+                            # Case 2: The group failed and has multiple alternatives. Create a nested view.
+                            else:
+                                row_id = group_results[0]['id'].split('-')[0]
+                                with st.expander(f"🚨 Row ID: {row_id}"):
+                                    for result in group_results:
+                                        # Create a nested expander for each specific ID
+                                        with st.expander(f"ID: {result['id']}"):
+                                            # Render the content directly inside the nested expander
+                                            render_expander_content(result, buttons_enabled=False)
+
+                    processed_rows_count = sum(len(g) for _, g in list(grouped)[:processed_groups])
+                    summary_placeholder.info(f"Processed: {processed_rows_count}/{total_rows} rows ({processed_groups}/{total_groups} groups) | Failures: {failed_count}")
+                    progress_bar.progress(processed_groups / total_groups, text=f"Processing group {processed_groups}/{total_groups}")
+            except Exception as e:
+                st.error(f"❌ An error occurred during analysis in group '{row_id}':")
+                st.exception(e) 
+                st.session_state.analysis_running = False
+                st.stop()
+
+
+        total_runtime = time.time() - analysis_start_time
+        avg_latency = sum(lat for _, lat in latencies) / len(latencies) if latencies else 0
+        if latencies:
+            max_latency_row_id, max_latency = max(latencies, key=lambda item: item[1])
+        else:
+            max_latency_row_id, max_latency = "N/A", 0
+
+        st.session_state.analysis_results = live_results
+        st.session_state.analysis_summary = {
+            "failed_count": failed_count,
+            "total_runtime": total_runtime,
+            "avg_latency": avg_latency,
+            "max_latency": max_latency,
+            "max_latency_row_id": max_latency_row_id
+        }
+        st.session_state.analysis_running = False
+        st.rerun()
+
+    elif st.session_state.analysis_results is not None:
+        st.header("Analysis Results")
+        summary = st.session_state.analysis_summary
+        if summary:
+            st.subheader("Performance Metrics")
+            stat_cols = st.columns(4)
+            with stat_cols[0]:
+                st.metric(label="Total Run Time", value=f"{summary.get('total_runtime', 0):.2f} s")
+            with stat_cols[1]:
+                st.metric(label="Avg. Latency / Request", value=f"{summary.get('avg_latency', 0):.2f} s")
+            with stat_cols[2]:
+                st.metric(label="Max Latency", value=f"{summary.get('max_latency', 0):.2f} s")
+            with stat_cols[3]:
+                st.metric(label="Slowest Row ID", value=summary.get('max_latency_row_id', 'N/A'))
+
+            st.markdown("---") # Add a separator
+
+            if summary['failed_count'] > 0:
+                st.warning(f"Found {summary['failed_count']} rows with significant differences.")
+            else:
+                st.success("✅ All rows passed the similarity checks!")
+
+        results_df = pd.DataFrame(st.session_state.analysis_results)
+        
+        # Guard against empty results
+        if not results_df.empty:
+            # Create a row_id column for grouping
+            results_df['row_id'] = results_df['id'].str.split('-').str[0]
+            
+            # Group by the new row_id
+            grouped_results = results_df.groupby('row_id')
+
+            for row_id, group_df in grouped_results:
+                group_results = group_df.to_dict('records')
+                
+                # Case 1: The group failed, but only has one alternative. Display it directly.
+                if len(group_results) == 1:
+                    display_result_expander(group_results[0], buttons_enabled=True)
+                # Case 2: The group failed and has multiple alternatives. Create a nested view.
+                else:
+                    with st.expander(f"🚨 Row Group: {row_id}"):
+                        for result in group_results:
+                            # Create a nested expander for each specific ID
+                            with st.expander(f"ID: {result['id']}"):
+                                # Render the content directly inside the nested expander
+                                render_expander_content(result, buttons_enabled=True)
+        else:
+            st.success("✅ All rows have been cleared. Re-run analysis for fresh results.")
+
+    elif df is None:
+        st.error("Failed to load data from the database. Please check the connection and table name.")
+
+if __name__ == "__main__":
+    main()
