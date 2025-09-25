@@ -41,6 +41,7 @@ def get_api_results_from_conversational_stream(query_text):
         ner_output_raw = final_response_data.get("ner_output", "")
         final_output_raw = final_response_data.get("output", {})
         search_output_raw = ""
+        ner_as_json = ""
         
         url_to_process = final_output_raw.get("url")
         
@@ -151,6 +152,7 @@ def get_api_results_from_agent_stream(query_text):
         ner_output_raw = final_response_data.get("ner_output", "")
         final_output_raw = final_response_data.get("output", {})
         search_output_raw = ""
+        ner_as_json = ""
         
         url_to_process = final_output_raw.get("url")
         
